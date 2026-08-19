@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "test:api": "node --env-file=.env test-env.js"
+    "test:api": "node --env-file=.env test-env.js",
+    "test:heatmap": "node --env-file=.env test-heatmap.js"
   },
   "dependencies": {
     "next": "16.3.1",
