@@ -1,10 +1,17 @@
 import { NextResponse } from "next/server";
 
+import { DEMO_DISCHARGE_SCENARIO } from "@/lib/demo-patient";
 import {
   FortyGuardError,
   fetchHeatRiskAnalysis,
   type HeatRiskInput,
 } from "@/lib/fortyguard";
+import { evaluateHeatDischargeRisk } from "@/lib/heat-discharge-risk";
+import {
+  FortyGuardMappingError,
+  extractFortyGuardMinimumTemperature,
+  mapFortyGuardStatsToEnvironmental,
+} from "@/lib/map-fortyguard-environment";
 
 // Allow the route to run for the full polling window on supported platforms.
 export const maxDuration = 120;
@@ -78,15 +85,60 @@ export async function POST(request: Request) {
   }
 
   try {
-    // The heavy lifting lives in the FortyGuard helper: submit a heatmap job,
-    // poll by activity_id, then shape the upstream payload for the frontend.
-    const result = await fetchHeatRiskAnalysis(parsed);
+    // Step 1: Retrieve live environmental heat data from FortyGuard for the
+    // discharge location and requested date/time window.
+    const fortyGuardResult = await fetchHeatRiskAnalysis(parsed);
 
-    return NextResponse.json(result);
+    // Step 2: Map FortyGuard stats into the environmental input shape used by
+    // the discharge risk engine (mean and maximum temperature in °C).
+    const environmental = mapFortyGuardStatsToEnvironmental(
+      fortyGuardResult.temperatureStats
+    );
+
+    // Step 3: Combine live environmental data with the fixed demo patient
+    // scenario and run the existing explainable risk engine unchanged.
+    const riskAssessment = evaluateHeatDischargeRisk({
+      environmental,
+      ...DEMO_DISCHARGE_SCENARIO,
+    });
+
+    return NextResponse.json({
+      fortyGuardDataUsed: true,
+      fortyGuardActivityId: fortyGuardResult.activityId,
+      environmentalData: {
+        dischargeLocation: {
+          latitude: parsed.latitude,
+          longitude: parsed.longitude,
+        },
+        analysisDate: parsed.date,
+        analysisTime: parsed.time,
+        meanTemperatureC: environmental.meanTemperature,
+        maximumTemperatureC: environmental.maximumTemperature,
+        minimumTemperatureC: extractFortyGuardMinimumTemperature(
+          fortyGuardResult.temperatureStats
+        ),
+        dataSource: "FortyGuard heatmap API (stats_data.temperature_stats)",
+      },
+      totalRiskScore: riskAssessment.score,
+      riskLevel: riskAssessment.priority,
+      triggeredRiskFactors: riskAssessment.riskFactors,
+      recommendedDischargeActions: riskAssessment.recommendedActions,
+      disclaimer: riskAssessment.disclaimer,
+    });
   } catch (error) {
+    if (error instanceof FortyGuardMappingError) {
+      console.error("[heat-risk]", error.message);
+
+      return NextResponse.json(
+        {
+          error:
+            "FortyGuard returned data in an unexpected format. Unable to complete heat discharge assessment.",
+        },
+        { status: 502 }
+      );
+    }
+
     if (error instanceof FortyGuardError) {
-      // Log a safe server-side message for debugging without exposing secrets
-      // or raw upstream payloads to the browser.
       console.error("[heat-risk]", error.message);
 
       if (error.kind === "config") {
@@ -98,25 +150,34 @@ export async function POST(request: Request) {
 
       if (error.kind === "timeout") {
         return NextResponse.json(
-          { error: "Heat risk analysis timed out. Please try again." },
+          {
+            error:
+              "FortyGuard heat analysis timed out. Unable to complete heat discharge assessment.",
+          },
           { status: 504 }
         );
       }
 
       if (error.kind === "failed") {
         return NextResponse.json(
-          { error: "Heat risk analysis failed. Please try again." },
+          {
+            error:
+              "FortyGuard heat analysis failed. Unable to complete heat discharge assessment.",
+          },
           { status: 502 }
         );
       }
 
       return NextResponse.json(
-        { error: "Unable to complete heat risk analysis at this time." },
+        {
+          error:
+            "FortyGuard is unavailable at this time. Unable to complete heat discharge assessment.",
+        },
         { status: 502 }
       );
     }
 
-    console.error("[heat-risk] Unexpected error during heat risk analysis.");
+    console.error("[heat-risk] Unexpected error during heat discharge assessment.");
 
     return NextResponse.json(
       { error: "An unexpected error occurred." },
