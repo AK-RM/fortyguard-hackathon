@@ -1,10 +1,17 @@
 import { NextResponse } from "next/server";
 
 import { DEMO_DISCHARGE_SCENARIO } from "@/lib/demo-patient";
+import { findDischargeLocation } from "@/lib/discharge-locations";
+import {
+  TimezoneConversionError,
+  buildLocalDateTimeMetadata,
+  buildUtcDateTimeMetadata,
+  convertLocalDateTimeToUtc,
+  isValidIanaTimeZone,
+} from "@/lib/discharge-timezone";
 import {
   FortyGuardError,
   fetchHeatRiskAnalysis,
-  type HeatRiskInput,
 } from "@/lib/fortyguard";
 import { evaluateHeatDischargeRisk } from "@/lib/heat-discharge-risk";
 import {
@@ -12,6 +19,7 @@ import {
   extractFortyGuardMinimumTemperature,
   mapFortyGuardEnvironmentalData,
 } from "@/lib/map-fortyguard-environment";
+import type { HeatRiskAssessmentRequest } from "@/types/heat-risk-api";
 
 // Allow the route to run for the full polling window on supported platforms.
 export const maxDuration = 120;
@@ -19,14 +27,17 @@ export const maxDuration = 120;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
 
-type ParsedHeatRiskRequest = HeatRiskInput | { error: string };
+type ParsedHeatRiskRequest = HeatRiskAssessmentRequest | { error: string };
 
 function parseHeatRiskRequest(body: unknown): ParsedHeatRiskRequest {
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
     return { error: "Request body must be a JSON object." };
   }
 
-  const { latitude, longitude, date, time } = body as Record<string, unknown>;
+  const { latitude, longitude, date, time, timeZone } = body as Record<
+    string,
+    unknown
+  >;
 
   if (typeof latitude !== "number" || !Number.isFinite(latitude)) {
     return { error: "latitude must be a finite number." };
@@ -63,7 +74,17 @@ function parseHeatRiskRequest(body: unknown): ParsedHeatRiskRequest {
     return { error: "time must be a string in HH:MM format." };
   }
 
-  return { latitude, longitude, date, time };
+  if (typeof timeZone !== "string" || timeZone.trim().length === 0) {
+    return {
+      error: "timeZone must be a non-empty IANA time zone for the discharge destination.",
+    };
+  }
+
+  if (!isValidIanaTimeZone(timeZone)) {
+    return { error: "timeZone must be a valid IANA time zone identifier." };
+  }
+
+  return { latitude, longitude, date, time, timeZone };
 }
 
 export async function POST(request: Request) {
@@ -85,9 +106,18 @@ export async function POST(request: Request) {
   }
 
   try {
-    // Step 1: Retrieve live environmental heat data from FortyGuard for the
-    // discharge location and requested date/time window.
-    const fortyGuardResult = await fetchHeatRiskAnalysis(parsed);
+    const localDateTime = { date: parsed.date, time: parsed.time };
+    const utcDateTime = convertLocalDateTimeToUtc(localDateTime, parsed.timeZone);
+    const matchedLocation = findDischargeLocation(parsed.latitude, parsed.longitude);
+
+    // Step 1: Retrieve live environmental heat data from FortyGuard using the
+    // UTC date/time required by the upstream heatmap API.
+    const fortyGuardResult = await fetchHeatRiskAnalysis({
+      latitude: parsed.latitude,
+      longitude: parsed.longitude,
+      date: utcDateTime.date,
+      time: utcDateTime.time,
+    });
 
     // Step 2: Map FortyGuard stats into the environmental input shape used by
     // the discharge risk engine (mean and maximum temperature in °C).
@@ -110,9 +140,16 @@ export async function POST(request: Request) {
         dischargeLocation: {
           latitude: parsed.latitude,
           longitude: parsed.longitude,
+          label: matchedLocation?.label ?? null,
+          timeZone: parsed.timeZone,
         },
-        analysisDate: parsed.date,
-        analysisTime: parsed.time,
+        dischargeDateTimeLocal: buildLocalDateTimeMetadata(
+          localDateTime,
+          parsed.timeZone
+        ),
+        fortyGuardRequestDateTimeUtc: buildUtcDateTimeMetadata(utcDateTime),
+        analysisDate: utcDateTime.date,
+        analysisTime: utcDateTime.time,
         meanTemperatureC: environmental.meanTemperature,
         maximumTemperatureC: environmental.maximumTemperature,
         minimumTemperatureC: extractFortyGuardMinimumTemperature({
@@ -128,6 +165,15 @@ export async function POST(request: Request) {
       disclaimer: riskAssessment.disclaimer,
     });
   } catch (error) {
+    if (error instanceof TimezoneConversionError) {
+      console.error("[heat-risk]", error.message);
+
+      return NextResponse.json(
+        { error: "Unable to convert discharge time to UTC for FortyGuard." },
+        { status: 400 }
+      );
+    }
+
     if (error instanceof FortyGuardMappingError) {
       console.error("[heat-risk]", error.message);
 

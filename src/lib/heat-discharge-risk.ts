@@ -108,19 +108,40 @@ export type HeatDischargeRiskInput = {
 export type HeatDischargeRiskResult = {
   score: number;
   priority: HeatDischargePriority;
-  riskFactors: string[];
-  recommendedActions: string[];
+  riskFactors: CategorizedRiskFactor[];
+  recommendedActions: DischargeAction[];
   disclaimer: string;
+};
+
+export type RiskFactorCategory = "environmental" | "clinical" | "homeSupport";
+
+export type CategorizedRiskFactor = {
+  category: RiskFactorCategory;
+  explanation: string;
+};
+
+export type SuggestedOwner =
+  | "treating clinician"
+  | "pharmacist"
+  | "discharge coordinator"
+  | "social worker"
+  | "community-care team";
+
+export type DischargeAction = {
+  action: string;
+  suggestedOwner: SuggestedOwner;
 };
 
 type ScoredFactor = {
   points: number;
   explanation: string;
+  category: RiskFactorCategory;
 };
 
 type RecommendedAction = {
   id: string;
   action: string;
+  suggestedOwner: SuggestedOwner;
 };
 
 const MEDICATION_LABELS: Record<keyof MedicationRiskInput, string> = {
@@ -136,6 +157,7 @@ const MEDICATION_LABELS: Record<keyof MedicationRiskInput, string> = {
 const BASELINE_ACTIONS: RecommendedAction[] = [
   {
     id: "patient-education",
+    suggestedOwner: "community-care team",
     action:
       "Provide patient and caregiver education on heat-related warning symptoms (for example, dizziness, confusion, reduced urine output, chest pain, or breathing difficulty) and when to seek emergency care. This is educational guidance only—not a diagnosis.",
   },
@@ -158,11 +180,13 @@ function scoreEnvironmental(environmental: EnvironmentalInput): ScoredFactor[] {
   if (environmental.meanTemperature >= HEAT_THRESHOLDS.meanHigh) {
     factors.push({
       points: WEIGHTS.environmental.meanTemperatureHigh,
+      category: "environmental",
       explanation: `Mean ambient temperature is ${environmental.meanTemperature} °C (high heat exposure).`,
     });
   } else if (environmental.meanTemperature >= HEAT_THRESHOLDS.meanModerate) {
     factors.push({
       points: WEIGHTS.environmental.meanTemperatureModerate,
+      category: "environmental",
       explanation: `Mean ambient temperature is ${environmental.meanTemperature} °C (moderate heat exposure).`,
     });
   }
@@ -170,11 +194,13 @@ function scoreEnvironmental(environmental: EnvironmentalInput): ScoredFactor[] {
   if (environmental.maximumTemperature >= HEAT_THRESHOLDS.maxHigh) {
     factors.push({
       points: WEIGHTS.environmental.maximumTemperatureHigh,
+      category: "environmental",
       explanation: `Maximum ambient temperature is ${environmental.maximumTemperature} °C (high peak heat).`,
     });
   } else if (environmental.maximumTemperature >= HEAT_THRESHOLDS.maxModerate) {
     factors.push({
       points: WEIGHTS.environmental.maximumTemperatureModerate,
+      category: "environmental",
       explanation: `Maximum ambient temperature is ${environmental.maximumTemperature} °C (moderate peak heat).`,
     });
   }
@@ -188,11 +214,13 @@ function scorePatient(patient: PatientFactorsInput): ScoredFactor[] {
   if (patient.age >= 75) {
     factors.push({
       points: WEIGHTS.patient.age75Plus,
+      category: "clinical",
       explanation: `Patient age is ${patient.age} (advanced age increases heat vulnerability).`,
     });
   } else if (patient.age >= 65) {
     factors.push({
       points: WEIGHTS.patient.age65to74,
+      category: "clinical",
       explanation: `Patient age is ${patient.age} (older adult heat vulnerability).`,
     });
   }
@@ -200,6 +228,7 @@ function scorePatient(patient: PatientFactorsInput): ScoredFactor[] {
   if (patient.cardiovascularDisease) {
     factors.push({
       points: WEIGHTS.patient.cardiovascularDisease,
+      category: "clinical",
       explanation:
         "Cardiovascular disease may reduce tolerance to heat stress during early recovery.",
     });
@@ -208,6 +237,7 @@ function scorePatient(patient: PatientFactorsInput): ScoredFactor[] {
   if (patient.heartFailure) {
     factors.push({
       points: WEIGHTS.patient.heartFailure,
+      category: "clinical",
       explanation:
         "Heart failure increases risk during heat events because fluid balance and exertion tolerance are more sensitive.",
     });
@@ -216,6 +246,7 @@ function scorePatient(patient: PatientFactorsInput): ScoredFactor[] {
   if (patient.kidneyDisease) {
     factors.push({
       points: WEIGHTS.patient.kidneyDisease,
+      category: "clinical",
       explanation:
         "Kidney disease increases vulnerability to dehydration and electrolyte shifts during heat exposure.",
     });
@@ -224,6 +255,7 @@ function scorePatient(patient: PatientFactorsInput): ScoredFactor[] {
   if (patient.respiratoryDisease) {
     factors.push({
       points: WEIGHTS.patient.respiratoryDisease,
+      category: "clinical",
       explanation:
         "Respiratory disease may worsen with heat and poor air quality during recovery at home.",
     });
@@ -232,6 +264,7 @@ function scorePatient(patient: PatientFactorsInput): ScoredFactor[] {
   if (patient.diabetes) {
     factors.push({
       points: WEIGHTS.patient.diabetes,
+      category: "clinical",
       explanation:
         "Diabetes can affect thermoregulation and hydration awareness during heat exposure.",
     });
@@ -240,6 +273,7 @@ function scorePatient(patient: PatientFactorsInput): ScoredFactor[] {
   if (patient.cognitiveImpairment) {
     factors.push({
       points: WEIGHTS.patient.cognitiveImpairment,
+      category: "clinical",
       explanation:
         "Cognitive impairment may reduce the ability to recognize or respond to heat-related symptoms.",
     });
@@ -248,6 +282,7 @@ function scorePatient(patient: PatientFactorsInput): ScoredFactor[] {
   if (patient.limitedMobility) {
     factors.push({
       points: WEIGHTS.patient.limitedMobility,
+      category: "clinical",
       explanation:
         "Limited mobility may restrict access to cooler spaces, fluids, or help during a heat event.",
     });
@@ -265,6 +300,7 @@ function scoreMedications(medications: MedicationRiskInput): ScoredFactor[] {
     if (medications[key]) {
       factors.push({
         points: WEIGHTS.medication[key],
+        category: "clinical",
         explanation: `Active ${label} therapy may require heat-aware medication review.`,
       });
     }
@@ -279,6 +315,7 @@ function scoreHomeSocial(homeSocial: HomeSocialInput): ScoredFactor[] {
   if (!homeSocial.workingAirConditioning) {
     factors.push({
       points: WEIGHTS.homeSocial.noWorkingAirConditioning,
+      category: "homeSupport",
       explanation: "No working air conditioning at the planned discharge destination.",
     });
   }
@@ -286,6 +323,7 @@ function scoreHomeSocial(homeSocial: HomeSocialInput): ScoredFactor[] {
   if (homeSocial.livesAlone) {
     factors.push({
       points: WEIGHTS.homeSocial.livesAlone,
+      category: "homeSupport",
       explanation: "Patient lives alone without continuous onsite support after discharge.",
     });
   }
@@ -293,6 +331,7 @@ function scoreHomeSocial(homeSocial: HomeSocialInput): ScoredFactor[] {
   if (!homeSocial.reliableTransport) {
     factors.push({
       points: WEIGHTS.homeSocial.noReliableTransport,
+      category: "homeSupport",
       explanation: "Reliable transport is not available for follow-up or cooling-centre access.",
     });
   }
@@ -300,6 +339,7 @@ function scoreHomeSocial(homeSocial: HomeSocialInput): ScoredFactor[] {
   if (!homeSocial.caregiverCheckInAvailable) {
     factors.push({
       points: WEIGHTS.homeSocial.noCaregiverCheckIn,
+      category: "homeSupport",
       explanation: "No caregiver check-in is available during the early post-discharge period.",
     });
   }
@@ -307,6 +347,7 @@ function scoreHomeSocial(homeSocial: HomeSocialInput): ScoredFactor[] {
   if (homeSocial.powerDependentMedicalEquipment) {
     factors.push({
       points: WEIGHTS.homeSocial.powerDependentMedicalEquipment,
+      category: "homeSupport",
       explanation:
         "Patient relies on power-dependent medical equipment that is vulnerable during outages.",
     });
@@ -340,23 +381,31 @@ function getActiveMedicationLabels(medications: MedicationRiskInput): string[] {
 function buildRecommendedActions(
   input: HeatDischargeRiskInput,
   priority: HeatDischargePriority
-): string[] {
+): DischargeAction[] {
   const actions: RecommendedAction[] = [...BASELINE_ACTIONS];
   const { environmental, patient, medications, homeSocial } = input;
 
   if (!homeSocial.workingAirConditioning) {
     actions.push({
       id: "cooling-resource-assessment",
+      suggestedOwner: "social worker",
       action:
         "Arrange social-work or cooling-resource assessment to verify home cooling options before discharge.",
     });
   }
 
-  if (homeSocial.livesAlone || !homeSocial.caregiverCheckInAvailable) {
+  const needsFollowUp =
+    homeSocial.livesAlone ||
+    !homeSocial.caregiverCheckInAvailable ||
+    priority === "high" ||
+    priority === "urgent";
+
+  if (needsFollowUp) {
     actions.push({
-      id: "proactive-follow-up",
+      id: "follow-up-24-48",
+      suggestedOwner: "discharge coordinator",
       action:
-        "Arrange proactive follow-up contact (phone or home visit) within the first 48 hours after discharge.",
+        "Schedule discharge coordinator follow-up within 24–48 hours (phone or home visit) to verify cooling access and post-discharge support.",
     });
   }
 
@@ -365,6 +414,7 @@ function buildRecommendedActions(
   if (activeMedications.length > 0) {
     actions.push({
       id: "medication-review",
+      suggestedOwner: "pharmacist",
       action: `Flag for clinician or pharmacist medication review due to heat-sensitive medication classes (${activeMedications.join(", ")}). Never stop or change medications automatically based on this tool.`,
     });
   }
@@ -372,6 +422,7 @@ function buildRecommendedActions(
   if (patient.limitedMobility || !homeSocial.reliableTransport) {
     actions.push({
       id: "transport-cooling-planning",
+      suggestedOwner: "community-care team",
       action:
         "Plan transport and cooling-centre access options in case home cooling fails during a heat event.",
     });
@@ -380,6 +431,7 @@ function buildRecommendedActions(
   if (homeSocial.powerDependentMedicalEquipment) {
     actions.push({
       id: "power-outage-contingency",
+      suggestedOwner: "discharge coordinator",
       action:
         "Develop a power-outage contingency plan including backup power or relocation options for medical equipment.",
     });
@@ -391,29 +443,24 @@ function buildRecommendedActions(
   ) {
     actions.push({
       id: "fluid-plan-review",
+      suggestedOwner: "treating clinician",
       action:
-        "Request enhanced hydration and fluid-plan review by the treating clinician; do not provide generic hydration instructions from this tool.",
-    });
-  }
-
-  if (priority === "high" || priority === "urgent") {
-    actions.push({
-      id: "priority-follow-up-window",
-      action:
-        "Schedule coordinator follow-up within 24–48 hours given elevated heat-discharge priority.",
+        "Review the patient's individualized fluid plan with the treating clinician. Do not provide generic hydration instructions or imply that fluid intake should automatically be increased.",
     });
   }
 
   const seen = new Set<string>();
 
-  return actions.filter(({ id, action }) => {
-    if (seen.has(id)) {
-      return false;
-    }
+  return actions
+    .filter(({ id, action }) => {
+      if (seen.has(id)) {
+        return false;
+      }
 
-    seen.add(id);
-    return Boolean(action);
-  }).map(({ action }) => action);
+      seen.add(id);
+      return Boolean(action);
+    })
+    .map(({ action, suggestedOwner }) => ({ action, suggestedOwner }));
 }
 
 /**
@@ -434,7 +481,10 @@ export function evaluateHeatDischargeRisk(
   const rawScore = scoredFactors.reduce((total, factor) => total + factor.points, 0);
   const score = clampScore(rawScore);
   const priority = derivePriority(score);
-  const riskFactors = scoredFactors.map((factor) => factor.explanation);
+  const riskFactors = scoredFactors.map(({ category, explanation }) => ({
+    category,
+    explanation,
+  }));
   const recommendedActions = buildRecommendedActions(input, priority);
 
   return {

@@ -3,19 +3,21 @@
 import { useState } from "react";
 
 import { DEMO_DISCHARGE_SCENARIO } from "@/lib/demo-patient";
-import type { HeatRiskInput } from "@/lib/fortyguard";
+import { PHOENIX_DEMO_DISCHARGE_LOCATION } from "@/lib/discharge-locations";
 import type {
   HomeSocialInput,
   MedicationRiskInput,
   PatientFactorsInput,
 } from "@/lib/heat-discharge-risk";
-import type { HeatRiskAssessmentResponse } from "@/types/heat-risk-api";
+import type { HeatRiskAssessmentRequest, HeatRiskAssessmentResponse } from "@/types/heat-risk-api";
+import type { CategorizedRiskFactor, RiskFactorCategory } from "@/lib/heat-discharge-risk";
 
-const DEMO_DISCHARGE_LOCATION: Pick<HeatRiskInput, "latitude" | "longitude" | "date" | "time"> = {
-  latitude: 33.4484,
-  longitude: -112.074,
+const DEMO_FORM_DEFAULTS = {
+  latitude: String(PHOENIX_DEMO_DISCHARGE_LOCATION.latitude),
+  longitude: String(PHOENIX_DEMO_DISCHARGE_LOCATION.longitude),
   date: "2026-08-18",
   time: "14:00",
+  timeZone: PHOENIX_DEMO_DISCHARGE_LOCATION.timeZone,
 };
 
 const EMPTY_PATIENT: PatientFactorsInput = {
@@ -53,6 +55,7 @@ function createEmptyFormState() {
     longitude: "",
     date: "",
     time: "",
+    timeZone: "",
     age: "",
     patient: { ...EMPTY_PATIENT },
     medications: { ...EMPTY_MEDICATIONS },
@@ -62,15 +65,32 @@ function createEmptyFormState() {
 
 function createDemoFormState() {
   return {
-    latitude: String(DEMO_DISCHARGE_LOCATION.latitude),
-    longitude: String(DEMO_DISCHARGE_LOCATION.longitude),
-    date: DEMO_DISCHARGE_LOCATION.date,
-    time: DEMO_DISCHARGE_LOCATION.time,
+    ...DEMO_FORM_DEFAULTS,
     age: String(DEMO_DISCHARGE_SCENARIO.patient.age),
     patient: { ...DEMO_DISCHARGE_SCENARIO.patient },
     medications: { ...DEMO_DISCHARGE_SCENARIO.medications },
     homeSocial: { ...DEMO_DISCHARGE_SCENARIO.homeSocial },
   };
+}
+
+const RISK_FACTOR_SECTIONS: Array<{
+  category: RiskFactorCategory;
+  title: string;
+}> = [
+  { category: "environmental", title: "Environmental" },
+  { category: "clinical", title: "Clinical" },
+  { category: "homeSupport", title: "Home / support" },
+];
+
+function groupRiskFactors(factors: CategorizedRiskFactor[]) {
+  return RISK_FACTOR_SECTIONS.map(({ category, title }) => ({
+    title,
+    factors: factors.filter((factor) => factor.category === category),
+  })).filter((section) => section.factors.length > 0);
+}
+
+function actionKey(action: { action: string; suggestedOwner: string }) {
+  return `${action.suggestedOwner}:${action.action}`;
 }
 
 const PRIORITY_STYLES: Record<
@@ -189,7 +209,7 @@ export default function DischargeAssessment() {
     }));
   }
 
-  function buildApiPayload(): HeatRiskInput | { error: string } {
+  function buildApiPayload(): HeatRiskAssessmentRequest | { error: string } {
     const parsedLatitude = Number(form.latitude);
     const parsedLongitude = Number(form.longitude);
 
@@ -213,11 +233,19 @@ export default function DischargeAssessment() {
       return { error: "Enter a valid discharge time in HH:MM format." };
     }
 
+    if (form.timeZone.trim().length === 0) {
+      return {
+        error:
+          "Enter the IANA time zone for the discharge destination (for example, America/Phoenix).",
+      };
+    }
+
     return {
       latitude: parsedLatitude,
       longitude: parsedLongitude,
       date: form.date,
       time: form.time,
+      timeZone: form.timeZone.trim(),
     };
   }
 
@@ -297,7 +325,7 @@ export default function DischargeAssessment() {
         <form onSubmit={handleAssess} className="space-y-6">
           <SectionCard
             title="Discharge location and timing"
-            description="These fields are submitted to the live FortyGuard heat analysis service."
+            description="Date and time are interpreted in the discharge destination time zone below—not your browser's time zone. FortyGuard receives the converted UTC value."
           >
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="block text-sm">
@@ -368,6 +396,23 @@ export default function DischargeAssessment() {
                   className="w-full rounded-md border border-slate-300 px-3 py-2 text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
                 />
               </label>
+              <label className="block text-sm sm:col-span-2">
+                <span className="mb-1 block font-medium text-slate-700">
+                  Discharge destination time zone (IANA)
+                </span>
+                <input
+                  type="text"
+                  value={form.timeZone}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      timeZone: event.target.value,
+                    }))
+                  }
+                  placeholder="America/Phoenix"
+                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
+                />
+              </label>
             </div>
           </SectionCard>
 
@@ -375,8 +420,8 @@ export default function DischargeAssessment() {
             title="Patient and discharge profile"
             description={
               demoLoaded
-                ? "Demo profile loaded from the configured discharge scenario. No names, MRNs, or addresses are stored."
-                : "Enter the discharge coordination profile, or load the demo patient to pre-fill all fields."
+                ? "Represents information pre-populated from an EHR or discharge workflow for this demo. No PHI is stored, transmitted, or retained by HeatSafe Discharge."
+                : "Enter the discharge coordination profile, or load the demo patient to pre-fill fields from a synthetic EHR/workflow extract."
             }
           >
             <div className="mb-4 grid gap-3 sm:grid-cols-2">
@@ -647,14 +692,32 @@ export default function DischargeAssessment() {
         <aside className="space-y-6">
           {result && priorityStyle ? (
             <>
+              {result.riskLevel === "urgent" ? (
+                <section
+                  role="alert"
+                  className="rounded-xl border-2 border-red-300 bg-red-50 p-4 text-sm text-red-950"
+                >
+                  <p className="font-semibold">
+                    Escalate for discharge-team review before discharge. Verify
+                    cooling and post-discharge support. This tool does not make
+                    or delay discharge decisions.
+                  </p>
+                </section>
+              ) : null}
+
               <section
                 className={`rounded-xl border bg-white p-6 shadow-sm ring-1 ${priorityStyle.ring}`}
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <p className="text-sm font-medium uppercase tracking-wide text-slate-500">
-                      Discharge heat risk
-                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-sm font-medium uppercase tracking-wide text-slate-500">
+                        Prototype prioritization score
+                      </p>
+                      <span className="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-900">
+                        Not clinically validated
+                      </span>
+                    </div>
                     <div className="mt-2 flex items-end gap-3">
                       <p className="text-5xl font-bold text-slate-900">
                         {result.totalRiskScore}
@@ -678,6 +741,58 @@ export default function DischargeAssessment() {
               </section>
 
               <SectionCard title="FortyGuard environmental data">
+                <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-800">
+                  <p className="font-medium text-slate-900">Discharge location</p>
+                  <p className="mt-1">
+                    {result.environmentalData.dischargeLocation.label ??
+                      "Configured discharge coordinates"}
+                  </p>
+                  <details className="mt-3">
+                    <summary className="cursor-pointer text-sky-700 hover:text-sky-800">
+                      Technical details for API transparency
+                    </summary>
+                    <dl className="mt-2 space-y-1 text-xs text-slate-600">
+                      <div>
+                        <dt className="inline font-medium">Discharge time: </dt>
+                        <dd className="inline">
+                          {result.environmentalData.dischargeDateTimeLocal.display}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="inline font-medium">
+                          FortyGuard request time:{" "}
+                        </dt>
+                        <dd className="inline">
+                          {result.environmentalData.fortyGuardRequestDateTimeUtc.display}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="inline font-medium">Latitude: </dt>
+                        <dd className="inline">
+                          {result.environmentalData.dischargeLocation.latitude}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="inline font-medium">Longitude: </dt>
+                        <dd className="inline">
+                          {result.environmentalData.dischargeLocation.longitude}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="inline font-medium">Time zone: </dt>
+                        <dd className="inline">
+                          {result.environmentalData.dischargeLocation.timeZone}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="inline font-medium">FortyGuard activity ID: </dt>
+                        <dd className="inline break-all">
+                          {result.fortyGuardActivityId}
+                        </dd>
+                      </div>
+                    </dl>
+                  </details>
+                </div>
                 <dl className="grid gap-3 text-sm sm:grid-cols-2">
                   <div className="rounded-lg bg-slate-50 p-3">
                     <dt className="text-slate-500">Mean temperature</dt>
@@ -699,21 +814,14 @@ export default function DischargeAssessment() {
                       </dd>
                     </div>
                   ) : null}
-                  <div className="rounded-lg bg-slate-50 p-3 sm:col-span-2">
-                    <dt className="text-slate-500">Discharge coordinates</dt>
-                    <dd className="mt-1 font-medium text-slate-900">
-                      {result.environmentalData.dischargeLocation.latitude},{" "}
-                      {result.environmentalData.dischargeLocation.longitude}
-                    </dd>
-                  </div>
                   <div className="rounded-lg bg-slate-50 p-3">
-                    <dt className="text-slate-500">Analysis date</dt>
+                    <dt className="text-slate-500">Analysis date (UTC submitted)</dt>
                     <dd className="mt-1 font-medium text-slate-900">
                       {result.environmentalData.analysisDate}
                     </dd>
                   </div>
                   <div className="rounded-lg bg-slate-50 p-3">
-                    <dt className="text-slate-500">Analysis time</dt>
+                    <dt className="text-slate-500">Analysis time (UTC submitted)</dt>
                     <dd className="mt-1 font-medium text-slate-900">
                       {result.environmentalData.analysisTime}
                     </dd>
@@ -726,16 +834,27 @@ export default function DischargeAssessment() {
 
               <SectionCard title="Triggered risk factors">
                 {result.triggeredRiskFactors.length > 0 ? (
-                  <ul className="space-y-2">
-                    {result.triggeredRiskFactors.map((factor) => (
-                      <li
-                        key={factor}
-                        className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700"
-                      >
-                        {factor}
-                      </li>
-                    ))}
-                  </ul>
+                  <div className="space-y-4">
+                    {groupRiskFactors(result.triggeredRiskFactors).map(
+                      (section) => (
+                        <div key={section.title}>
+                          <h3 className="mb-2 text-sm font-semibold text-slate-800">
+                            {section.title}
+                          </h3>
+                          <ul className="space-y-2">
+                            {section.factors.map((factor) => (
+                              <li
+                                key={factor.explanation}
+                                className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700"
+                              >
+                                {factor.explanation}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )
+                    )}
+                  </div>
                 ) : (
                   <p className="text-sm text-slate-600">
                     No additional risk factors were triggered for this profile.
@@ -745,24 +864,33 @@ export default function DischargeAssessment() {
 
               <SectionCard title="Recommended discharge actions">
                 <ul className="space-y-2">
-                  {result.recommendedDischargeActions.map((action) => (
+                  {result.recommendedDischargeActions.map((actionItem) => (
                     <li
-                      key={action}
-                      className="flex items-start gap-3 rounded-md border border-slate-200 px-3 py-3 text-sm text-slate-700"
+                      key={actionKey(actionItem)}
+                      className="rounded-md border border-slate-200 px-3 py-3 text-sm text-slate-700"
                     >
-                      <input
-                        type="checkbox"
-                        checked={checkedActions[action] === true}
-                        onChange={(event) =>
-                          setCheckedActions((current) => ({
-                            ...current,
-                            [action]: event.target.checked,
-                          }))
-                        }
-                        aria-label={`Coordinator checklist item: ${action}`}
-                        className="mt-0.5 h-4 w-4 rounded border-slate-300 text-sky-700 focus:ring-sky-500"
-                      />
-                      <span>{action}</span>
+                      <div className="flex items-start gap-3">
+                        <input
+                          type="checkbox"
+                          checked={
+                            checkedActions[actionKey(actionItem)] === true
+                          }
+                          onChange={(event) =>
+                            setCheckedActions((current) => ({
+                              ...current,
+                              [actionKey(actionItem)]: event.target.checked,
+                            }))
+                          }
+                          aria-label={`Coordinator checklist item: ${actionItem.action}`}
+                          className="mt-0.5 h-4 w-4 rounded border-slate-300 text-sky-700 focus:ring-sky-500"
+                        />
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-wide text-sky-800">
+                            Suggested owner: {actionItem.suggestedOwner}
+                          </p>
+                          <p className="mt-1">{actionItem.action}</p>
+                        </div>
+                      </div>
                     </li>
                   ))}
                 </ul>

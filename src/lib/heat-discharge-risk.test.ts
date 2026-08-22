@@ -51,6 +51,10 @@ function createBaseInput(
   };
 }
 
+function actionText(action: { action: string }) {
+  return action.action;
+}
+
 describe("evaluateHeatDischargeRisk", () => {
   it("returns a low score and routine priority for a low-vulnerability patient with working air conditioning", () => {
     const result = evaluateHeatDischargeRisk(createBaseInput());
@@ -58,7 +62,7 @@ describe("evaluateHeatDischargeRisk", () => {
     expect(result.score).toBeLessThan(25);
     expect(result.priority).toBe("routine");
     expect(result.riskFactors).toHaveLength(0);
-    expect(result.recommendedActions).toContain(
+    expect(result.recommendedActions.map(actionText)).toContain(
       "Provide patient and caregiver education on heat-related warning symptoms (for example, dizziness, confusion, reduced urine output, chest pain, or breathing difficulty) and when to seek emergency care. This is educational guidance only—not a diagnosis."
     );
     expect(result.disclaimer).toMatch(/prototype decision support/i);
@@ -89,30 +93,39 @@ describe("evaluateHeatDischargeRisk", () => {
 
     expect(result.score).toBeGreaterThanOrEqual(50);
     expect(["high", "urgent"]).toContain(result.priority);
-    expect(result.riskFactors.some((factor) => factor.includes("Heart failure"))).toBe(
-      true
-    );
-    expect(result.riskFactors.some((factor) => factor.includes("Kidney disease"))).toBe(
-      true
-    );
     expect(
       result.riskFactors.some((factor) =>
-        factor.includes("No working air conditioning")
+        factor.explanation.includes("Heart failure")
+      )
+    ).toBe(true);
+    expect(
+      result.riskFactors.some((factor) =>
+        factor.explanation.includes("Kidney disease")
+      )
+    ).toBe(true);
+    expect(
+      result.riskFactors.some((factor) =>
+        factor.explanation.includes("No working air conditioning")
       )
     ).toBe(true);
     expect(
       result.recommendedActions.some((action) =>
-        action.includes("social-work or cooling-resource assessment")
+        action.action.includes("social-work or cooling-resource assessment")
       )
     ).toBe(true);
     expect(
       result.recommendedActions.some((action) =>
-        action.includes("proactive follow-up contact")
+        action.action.includes("follow-up within 24–48 hours")
       )
     ).toBe(true);
     expect(
       result.recommendedActions.some((action) =>
-        action.includes("fluid-plan review by the treating clinician")
+        action.action.includes("individualized fluid plan with the treating clinician")
+      )
+    ).toBe(true);
+    expect(
+      result.recommendedActions.some((action) =>
+        action.action.includes("fluid intake should automatically be increased")
       )
     ).toBe(true);
   });
@@ -129,22 +142,26 @@ describe("evaluateHeatDischargeRisk", () => {
     );
 
     const medicationAction = result.recommendedActions.find((action) =>
-      action.includes("medication review")
+      action.action.includes("medication review")
     );
 
     expect(medicationAction).toBeDefined();
-    expect(medicationAction).toMatch(/Never stop or change medications automatically/i);
+    expect(medicationAction?.suggestedOwner).toBe("pharmacist");
+    expect(medicationAction?.action).toMatch(
+      /Never stop or change medications automatically/i
+    );
     expect(
       result.recommendedActions.some(
         (action) =>
-          /stop medication/i.test(action) &&
-          !/Never stop or change medications automatically/i.test(action)
+          /stop medication/i.test(action.action) &&
+          !/Never stop or change medications automatically/i.test(action.action)
       )
     ).toBe(false);
     expect(
-      result.recommendedActions.some((action) =>
-        /change medication/i.test(action) &&
-        !/Never stop or change medications automatically/i.test(action)
+      result.recommendedActions.some(
+        (action) =>
+          /change medication/i.test(action.action) &&
+          !/Never stop or change medications automatically/i.test(action.action)
       )
     ).toBe(false);
   });
@@ -202,9 +219,35 @@ describe("evaluateHeatDischargeRisk", () => {
     );
 
     const transportActions = result.recommendedActions.filter((action) =>
-      action.includes("transport and cooling-centre access")
+      action.action.includes("transport and cooling-centre access")
     );
 
     expect(transportActions).toHaveLength(1);
+  });
+
+  it("includes only one 24–48-hour follow-up action when multiple follow-up triggers apply", () => {
+    const result = evaluateHeatDischargeRisk(
+      createBaseInput({
+        patient: {
+          age: 78,
+          heartFailure: true,
+        },
+        homeSocial: {
+          livesAlone: true,
+          caregiverCheckInAvailable: false,
+        },
+        environmental: {
+          meanTemperature: 33,
+          maximumTemperature: 39,
+        },
+      })
+    );
+
+    const followUpActions = result.recommendedActions.filter((action) =>
+      action.action.includes("follow-up within 24–48 hours")
+    );
+
+    expect(followUpActions).toHaveLength(1);
+    expect(followUpActions[0]?.suggestedOwner).toBe("discharge coordinator");
   });
 });

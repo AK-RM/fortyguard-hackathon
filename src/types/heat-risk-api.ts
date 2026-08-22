@@ -1,4 +1,9 @@
-import type { HeatDischargePriority } from "@/lib/heat-discharge-risk";
+import type {
+  CategorizedRiskFactor,
+  DischargeAction,
+  HeatDischargePriority,
+} from "@/lib/heat-discharge-risk";
+import type { DateTimeMetadata } from "@/lib/discharge-timezone";
 
 export type HeatRiskAssessmentResponse = {
   fortyGuardDataUsed: boolean;
@@ -7,7 +12,11 @@ export type HeatRiskAssessmentResponse = {
     dischargeLocation: {
       latitude: number;
       longitude: number;
+      label: string | null;
+      timeZone: string;
     };
+    dischargeDateTimeLocal: DateTimeMetadata;
+    fortyGuardRequestDateTimeUtc: DateTimeMetadata;
     analysisDate: string;
     analysisTime: string;
     meanTemperatureC: number;
@@ -17,11 +26,19 @@ export type HeatRiskAssessmentResponse = {
   };
   totalRiskScore: number;
   riskLevel: HeatDischargePriority;
-  triggeredRiskFactors: string[];
-  recommendedDischargeActions: string[];
+  triggeredRiskFactors: CategorizedRiskFactor[];
+  recommendedDischargeActions: DischargeAction[];
   disclaimer: string;
 };
 
 export type HeatRiskAssessmentErrorResponse = {
   error: string;
+};
+
+export type HeatRiskAssessmentRequest = {
+  latitude: number;
+  longitude: number;
+  date: string;
+  time: string;
+  timeZone: string;
 };
