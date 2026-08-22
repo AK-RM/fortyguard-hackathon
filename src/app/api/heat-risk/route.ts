@@ -10,7 +10,7 @@ import { evaluateHeatDischargeRisk } from "@/lib/heat-discharge-risk";
 import {
   FortyGuardMappingError,
   extractFortyGuardMinimumTemperature,
-  mapFortyGuardStatsToEnvironmental,
+  mapFortyGuardEnvironmentalData,
 } from "@/lib/map-fortyguard-environment";
 
 // Allow the route to run for the full polling window on supported platforms.
@@ -91,9 +91,10 @@ export async function POST(request: Request) {
 
     // Step 2: Map FortyGuard stats into the environmental input shape used by
     // the discharge risk engine (mean and maximum temperature in °C).
-    const environmental = mapFortyGuardStatsToEnvironmental(
-      fortyGuardResult.temperatureStats
-    );
+    const environmental = mapFortyGuardEnvironmentalData({
+      statsData: fortyGuardResult.temperatureStats,
+      mapData: fortyGuardResult.mapData,
+    });
 
     // Step 3: Combine live environmental data with the fixed demo patient
     // scenario and run the existing explainable risk engine unchanged.
@@ -114,9 +115,10 @@ export async function POST(request: Request) {
         analysisTime: parsed.time,
         meanTemperatureC: environmental.meanTemperature,
         maximumTemperatureC: environmental.maximumTemperature,
-        minimumTemperatureC: extractFortyGuardMinimumTemperature(
-          fortyGuardResult.temperatureStats
-        ),
+        minimumTemperatureC: extractFortyGuardMinimumTemperature({
+          statsData: fortyGuardResult.temperatureStats,
+          mapData: fortyGuardResult.mapData,
+        }),
         dataSource: "FortyGuard heatmap API (stats_data.temperature_stats)",
       },
       totalRiskScore: riskAssessment.score,

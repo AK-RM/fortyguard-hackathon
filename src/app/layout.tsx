@@ -3,7 +3,8 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "HeatSafe Discharge",
-  description: "HeatSafe Discharge for the FortyGuard Hackathon",
+  description:
+    "Assess environmental heat risk before hospital discharge using live FortyGuard data.",
 };
 
 export default function RootLayout({
@@ -13,7 +14,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body className="min-h-screen bg-slate-100 text-slate-900 antialiased">
+        {children}
+      </body>
     </html>
   );
 }
