@@ -45,7 +45,7 @@ Try the live app at [fortyguard-hackathon.vercel.app](https://fortyguard-hackath
 1. **Load the demo patient** or enter patient factors manually.
 2. **Review the fixed Phoenix environmental scenario** shown in the read-only demo panel.
 3. **Adjust age, comorbidities, medications, and home/social factors** to explore different vulnerability profiles.
-4. **Run the assessment** — the app calls the backend, which retrieves live FortyGuard data.
+4. **Run the assessment** — the app calls the backend, which queries the FortyGuard API at assessment time for environmental data for the configured historical Phoenix scenario.
 5. **Review FortyGuard environmental data** in the results panel, including mean/max/min temperatures and API metadata.
 6. **Inspect the score and triggered risk factors**, grouped by category.
 7. **Review recommended actions and suggested owners**, with checkboxes for coordinator workflow use.
@@ -64,7 +64,7 @@ For judging reproducibility, **environmental inputs are locked** to one validate
 | Time zone | `America/Phoenix` |
 
 - **Patient and home/social factors remain fully interactive.**
-- **Temperatures are retrieved from FortyGuard and are not hardcoded.**
+- **The app queries the FortyGuard API at assessment time for environmental data for the configured historical Phoenix scenario; temperatures are not hardcoded.**
 - The API rejects requests that do not match this scenario (HTTP 400), even if the frontend is bypassed.
 
 The preloaded demo patient is a **synthetic profile** (age 78, heart failure, kidney disease, diuretic therapy, no working air conditioning, lives alone, no caregiver check-in). No real patient identifiers are used.
@@ -73,12 +73,12 @@ The preloaded demo patient is a **synthetic profile** (age 78, heart failure, ki
 
 | Data | Status |
 | --- | --- |
-| FortyGuard environmental temperature data | **Real** — retrieved from the FortyGuard API at assessment time |
+| FortyGuard environmental temperature data | **Real** — queried from the FortyGuard API at assessment time for the configured historical Phoenix scenario (18 August 2026) |
 | Patient profile | **Synthetic** — demo inputs only |
 | Conditions and medications | **Synthetic** — demo inputs only |
 | Home/social factors | **Synthetic** — demo inputs only |
 | Phoenix discharge scenario | **Controlled demo scenario** — fixed for hackathon reproducibility |
-| Patient identifiers / PHI | **Not collected** — no names, MRNs, or addresses |
+| Patient identifiers / PHI | **Not requested in demo** — the hackathon demo uses a synthetic patient profile and does not request names, MRNs, addresses, or other direct patient identifiers |
 
 ## Why FortyGuard?
 
@@ -86,10 +86,10 @@ Generic weather apps report broad forecast conditions. Discharge planning needs 
 
 FortyGuard adds value to this workflow because:
 
-- It provides **environmental heat data designed for urban-heat analysis**, suitable for location-specific discharge decisions.
+- It provides **environmental heat data designed for urban-heat analysis**, offering location-specific environmental context that can be incorporated into discharge workflows.
 - The heatmap API accepts a **GeoJSON area of interest** centered on discharge coordinates, enabling spatially relevant analysis rather than a city-wide average alone.
 - Results integrate into an **operational healthcare workflow** via a server-side API route with structured request/response handling.
-- Each analysis returns a **FortyGuard activity ID** and normalized temperature statistics, supporting API transparency and auditability in the results panel.
+- Each analysis returns a **FortyGuard activity ID** and normalized temperature statistics, supporting request traceability and API transparency in the results panel.
 
 This prototype submits a ~400 m square polygon around the discharge point, polls the asynchronous heatmap job until completion, and maps `stats_data` (with `map_data` fallback) into mean and maximum temperatures for scoring.
 
@@ -175,7 +175,7 @@ Recommended actions are rule-based and conditionally generated — for example, 
 HeatSafe Discharge is built with explicit safety boundaries:
 
 - **Prototype-only labeling** — the UI displays “Not clinically validated” alongside the score.
-- **No PHI collection** — the app accepts structured workflow factors only; no names, MRNs, or addresses.
+- **Synthetic demo profile only** — the hackathon demo uses a synthetic patient profile and does not request names, MRNs, addresses, or other direct patient identifiers.
 - **Clinical disclaimer** returned with every assessment and shown in the UI.
 - **Augment, not replace** — recommended actions flag items for human review; they do not execute clinical orders.
 - **Medication safety language** — actions explicitly state that medications must not be stopped or changed automatically.
@@ -187,7 +187,7 @@ HeatSafe Discharge is built with explicit safety boundaries:
 
 ### Prerequisites
 
-- Node.js 18+
+- Node.js 20.9+
 - A FortyGuard API key with access to the US state used during signup (the demo Phoenix scenario requires Arizona coverage)
 
 ### Setup
