@@ -240,12 +240,24 @@ export default function DischargeAssessment() {
       };
     }
 
+    const parsedAge = form.age === "" ? Number.NaN : Number(form.age);
+
+    if (!Number.isFinite(parsedAge) || parsedAge < 0 || parsedAge > 120) {
+      return { error: "Enter a valid age between 0 and 120." };
+    }
+
     return {
       latitude: parsedLatitude,
       longitude: parsedLongitude,
       date: form.date,
       time: form.time,
       timeZone: form.timeZone.trim(),
+      patient: {
+        ...form.patient,
+        age: parsedAge,
+      },
+      medications: { ...form.medications },
+      homeSocial: { ...form.homeSocial },
     };
   }
 

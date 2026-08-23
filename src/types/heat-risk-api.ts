@@ -2,6 +2,9 @@ import type {
   CategorizedRiskFactor,
   DischargeAction,
   HeatDischargePriority,
+  HomeSocialInput,
+  MedicationRiskInput,
+  PatientFactorsInput,
 } from "@/lib/heat-discharge-risk";
 import type { DateTimeMetadata } from "@/lib/discharge-timezone";
 
@@ -41,4 +44,7 @@ export type HeatRiskAssessmentRequest = {
   date: string;
   time: string;
   timeZone: string;
+  patient: PatientFactorsInput;
+  medications: MedicationRiskInput;
+  homeSocial: HomeSocialInput;
 };
