@@ -1,4 +1,8 @@
 import { isValidIanaTimeZone } from "@/lib/discharge-timezone";
+import {
+  HACKATHON_DEMO_ENVIRONMENT_ERROR,
+  isSupportedHackathonDemoEnvironment,
+} from "@/lib/discharge-locations";
 import type {
   HomeSocialInput,
   MedicationRiskInput,
@@ -191,6 +195,18 @@ export function parseHeatRiskRequest(body: unknown): ParsedHeatRiskRequest {
 
   if (!isValidIanaTimeZone(timeZone)) {
     return { error: "timeZone must be a valid IANA time zone identifier." };
+  }
+
+  if (
+    !isSupportedHackathonDemoEnvironment({
+      latitude,
+      longitude,
+      date,
+      time,
+      timeZone,
+    })
+  ) {
+    return { error: HACKATHON_DEMO_ENVIRONMENT_ERROR };
   }
 
   const parsedPatient = parsePatient(patient);

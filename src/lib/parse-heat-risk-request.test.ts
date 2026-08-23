@@ -1,14 +1,16 @@
 import { describe, expect, it } from "vitest";
 
 import { evaluateHeatDischargeRisk } from "./heat-discharge-risk";
+import {
+  getHackathonDemoEnvironmentalRequest,
+  HACKATHON_DEMO_ENVIRONMENT_ERROR,
+} from "./discharge-locations";
 import { parseHeatRiskRequest } from "./parse-heat-risk-request";
 
+const DEMO_ENVIRONMENT = getHackathonDemoEnvironmentalRequest();
+
 const VALID_BASE_REQUEST = {
-  latitude: 33.4484,
-  longitude: -112.074,
-  date: "2026-08-18",
-  time: "14:00",
-  timeZone: "America/Phoenix",
+  ...DEMO_ENVIRONMENT,
   patient: {
     age: 40,
     cardiovascularDisease: false,
@@ -115,6 +117,93 @@ describe("parseHeatRiskRequest", () => {
     expect(parsed).toEqual({
       error: "homeSocial.livesAlone is required.",
     });
+  });
+
+  it("accepts the validated Phoenix hackathon demo environment", () => {
+    const parsed = parseHeatRiskRequest(VALID_BASE_REQUEST);
+
+    expect(parsed).toEqual(VALID_BASE_REQUEST);
+  });
+
+  it("rejects a different latitude", () => {
+    const parsed = parseHeatRiskRequest({
+      ...VALID_BASE_REQUEST,
+      latitude: 34,
+    });
+
+    expect(parsed).toEqual({ error: HACKATHON_DEMO_ENVIRONMENT_ERROR });
+  });
+
+  it("rejects a different longitude", () => {
+    const parsed = parseHeatRiskRequest({
+      ...VALID_BASE_REQUEST,
+      longitude: -111,
+    });
+
+    expect(parsed).toEqual({ error: HACKATHON_DEMO_ENVIRONMENT_ERROR });
+  });
+
+  it("rejects an unsupported timezone", () => {
+    const parsed = parseHeatRiskRequest({
+      ...VALID_BASE_REQUEST,
+      timeZone: "America/Los_Angeles",
+    });
+
+    expect(parsed).toEqual({ error: HACKATHON_DEMO_ENVIRONMENT_ERROR });
+  });
+
+  it("rejects an unsupported discharge date", () => {
+    const parsed = parseHeatRiskRequest({
+      ...VALID_BASE_REQUEST,
+      date: "2026-08-19",
+    });
+
+    expect(parsed).toEqual({ error: HACKATHON_DEMO_ENVIRONMENT_ERROR });
+  });
+
+  it("rejects an unsupported discharge time", () => {
+    const parsed = parseHeatRiskRequest({
+      ...VALID_BASE_REQUEST,
+      time: "15:00",
+    });
+
+    expect(parsed).toEqual({ error: HACKATHON_DEMO_ENVIRONMENT_ERROR });
+  });
+
+  it("allows patient factors to differ while the environmental scenario stays fixed", () => {
+    const alternatePatientRequest = {
+      ...VALID_BASE_REQUEST,
+      patient: {
+        age: 82,
+        cardiovascularDisease: true,
+        heartFailure: true,
+        kidneyDisease: false,
+        respiratoryDisease: false,
+        diabetes: true,
+        cognitiveImpairment: true,
+        limitedMobility: true,
+      },
+      medications: {
+        diuretic: true,
+        aceArbArni: true,
+        betaBlocker: false,
+        anticholinergic: false,
+        psychotropic: false,
+        lithium: false,
+        nsaid: false,
+      },
+      homeSocial: {
+        workingAirConditioning: false,
+        livesAlone: true,
+        reliableTransport: false,
+        caregiverCheckInAvailable: false,
+        powerDependentMedicalEquipment: true,
+      },
+    };
+
+    const parsed = parseHeatRiskRequest(alternatePatientRequest);
+
+    expect(parsed).toEqual(alternatePatientRequest);
   });
 });
 

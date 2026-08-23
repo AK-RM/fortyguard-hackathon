@@ -3,7 +3,10 @@
 import { useState } from "react";
 
 import { DEMO_DISCHARGE_SCENARIO } from "@/lib/demo-patient";
-import { PHOENIX_DEMO_DISCHARGE_LOCATION } from "@/lib/discharge-locations";
+import {
+  PHOENIX_DEMO_DISCHARGE_LOCATION,
+  getHackathonDemoEnvironmentalRequest,
+} from "@/lib/discharge-locations";
 import type {
   HomeSocialInput,
   MedicationRiskInput,
@@ -11,14 +14,6 @@ import type {
 } from "@/lib/heat-discharge-risk";
 import type { HeatRiskAssessmentRequest, HeatRiskAssessmentResponse } from "@/types/heat-risk-api";
 import type { CategorizedRiskFactor, RiskFactorCategory } from "@/lib/heat-discharge-risk";
-
-const DEMO_FORM_DEFAULTS = {
-  latitude: String(PHOENIX_DEMO_DISCHARGE_LOCATION.latitude),
-  longitude: String(PHOENIX_DEMO_DISCHARGE_LOCATION.longitude),
-  date: "2026-08-18",
-  time: "14:00",
-  timeZone: PHOENIX_DEMO_DISCHARGE_LOCATION.timeZone,
-};
 
 const EMPTY_PATIENT: PatientFactorsInput = {
   age: 0,
@@ -51,11 +46,6 @@ const EMPTY_HOME_SOCIAL: HomeSocialInput = {
 
 function createEmptyFormState() {
   return {
-    latitude: "",
-    longitude: "",
-    date: "",
-    time: "",
-    timeZone: "",
     age: "",
     patient: { ...EMPTY_PATIENT },
     medications: { ...EMPTY_MEDICATIONS },
@@ -65,7 +55,6 @@ function createEmptyFormState() {
 
 function createDemoFormState() {
   return {
-    ...DEMO_FORM_DEFAULTS,
     age: String(DEMO_DISCHARGE_SCENARIO.patient.age),
     patient: { ...DEMO_DISCHARGE_SCENARIO.patient },
     medications: { ...DEMO_DISCHARGE_SCENARIO.medications },
@@ -210,36 +199,6 @@ export default function DischargeAssessment() {
   }
 
   function buildApiPayload(): HeatRiskAssessmentRequest | { error: string } {
-    const parsedLatitude = Number(form.latitude);
-    const parsedLongitude = Number(form.longitude);
-
-    if (!Number.isFinite(parsedLatitude) || parsedLatitude < -90 || parsedLatitude > 90) {
-      return { error: "Enter a valid discharge latitude between -90 and 90." };
-    }
-
-    if (
-      !Number.isFinite(parsedLongitude) ||
-      parsedLongitude < -180 ||
-      parsedLongitude > 180
-    ) {
-      return { error: "Enter a valid discharge longitude between -180 and 180." };
-    }
-
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(form.date)) {
-      return { error: "Enter a valid discharge date in YYYY-MM-DD format." };
-    }
-
-    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(form.time)) {
-      return { error: "Enter a valid discharge time in HH:MM format." };
-    }
-
-    if (form.timeZone.trim().length === 0) {
-      return {
-        error:
-          "Enter the IANA time zone for the discharge destination (for example, America/Phoenix).",
-      };
-    }
-
     const parsedAge = form.age === "" ? Number.NaN : Number(form.age);
 
     if (!Number.isFinite(parsedAge) || parsedAge < 0 || parsedAge > 120) {
@@ -247,11 +206,7 @@ export default function DischargeAssessment() {
     }
 
     return {
-      latitude: parsedLatitude,
-      longitude: parsedLongitude,
-      date: form.date,
-      time: form.time,
-      timeZone: form.timeZone.trim(),
+      ...getHackathonDemoEnvironmentalRequest(),
       patient: {
         ...form.patient,
         age: parsedAge,
@@ -336,95 +291,24 @@ export default function DischargeAssessment() {
       <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
         <form onSubmit={handleAssess} className="space-y-6">
           <SectionCard
-            title="Discharge location and timing"
-            description="Date and time are interpreted in the discharge destination time zone below—not your browser's time zone. FortyGuard receives the converted UTC value."
+            title="Demo environmental scenario"
+            description="Validated hackathon demonstration using a synthetic patient profile and a fixed Phoenix environmental case. Temperature data is retrieved from FortyGuard—not fabricated."
           >
-            <div className="grid gap-4 sm:grid-cols-2">
-              <label className="block text-sm">
-                <span className="mb-1 block font-medium text-slate-700">
-                  Latitude
-                </span>
-                <input
-                  type="number"
-                  step="any"
-                  value={form.latitude}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      latitude: event.target.value,
-                    }))
-                  }
-                  placeholder="33.4484"
-                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-                />
-              </label>
-              <label className="block text-sm">
-                <span className="mb-1 block font-medium text-slate-700">
-                  Longitude
-                </span>
-                <input
-                  type="number"
-                  step="any"
-                  value={form.longitude}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      longitude: event.target.value,
-                    }))
-                  }
-                  placeholder="-112.0740"
-                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-                />
-              </label>
-              <label className="block text-sm">
-                <span className="mb-1 block font-medium text-slate-700">
-                  Discharge date
-                </span>
-                <input
-                  type="date"
-                  value={form.date}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      date: event.target.value,
-                    }))
-                  }
-                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-                />
-              </label>
-              <label className="block text-sm">
-                <span className="mb-1 block font-medium text-slate-700">
-                  Discharge time
-                </span>
-                <input
-                  type="time"
-                  value={form.time}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      time: event.target.value,
-                    }))
-                  }
-                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-                />
-              </label>
-              <label className="block text-sm sm:col-span-2">
-                <span className="mb-1 block font-medium text-slate-700">
-                  Discharge destination time zone (IANA)
-                </span>
-                <input
-                  type="text"
-                  value={form.timeZone}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      timeZone: event.target.value,
-                    }))
-                  }
-                  placeholder="America/Phoenix"
-                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200"
-                />
-              </label>
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-800">
+              <p className="font-medium text-slate-900">
+                {PHOENIX_DEMO_DISCHARGE_LOCATION.displayLocation}
+              </p>
+              <p className="mt-2">
+                Planned discharge:{" "}
+                {PHOENIX_DEMO_DISCHARGE_LOCATION.plannedDischargeDisplay}
+              </p>
+              <p className="mt-1">
+                Environmental source:{" "}
+                {PHOENIX_DEMO_DISCHARGE_LOCATION.environmentalSourceLabel}
+              </p>
+              <p className="mt-4 text-slate-600">
+                {PHOENIX_DEMO_DISCHARGE_LOCATION.lockExplanation}
+              </p>
             </div>
           </SectionCard>
 
