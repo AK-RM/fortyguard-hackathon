@@ -3,14 +3,16 @@
  *
  * These values are NOT probabilities, validated clinical thresholds, or
  * evidence-based risk scores. They exist to rank discharge-coordination
- * follow-up effort in hackathon/demo workflows and can be tuned by operators.
+ * follow-up effort and can be tuned under clinical governance.
  */
 export const WEIGHTS = {
   environmental: {
-    meanTemperatureModerate: 8, // mean >= 28 °C
-    meanTemperatureHigh: 15, // mean >= 32 °C
-    maximumTemperatureModerate: 8, // max >= 35 °C
-    maximumTemperatureHigh: 15, // max >= 38 °C
+    meanTemperatureModerate: 8,
+    meanTemperatureHigh: 15,
+    maximumTemperatureModerate: 8,
+    maximumTemperatureHigh: 15,
+    transitionBase: 14,
+    transitionMax: 18,
   },
   patient: {
     age65to74: 5,
@@ -41,17 +43,12 @@ export const WEIGHTS = {
   },
 } as const;
 
-/**
- * Score cut-offs that map the capped 0–100 score to coordinator priority tiers.
- * These tiers are workflow labels, not clinical acuity classifications.
- */
 export const PRIORITY_THRESHOLDS = {
   enhanced: 25,
   high: 50,
   urgent: 75,
 } as const;
 
-/** Environmental heat thresholds used for scoring and conditional action rules. */
 export const HEAT_THRESHOLDS = {
   meanModerate: 28,
   meanHigh: 32,
@@ -59,14 +56,32 @@ export const HEAT_THRESHOLDS = {
   maxHigh: 38,
 } as const;
 
+export const SCORE_EXPLAINER_DISCLAIMER =
+  "Transparent workflow-prioritization heuristic — not predicted clinical outcome risk.";
+
 export const DISCLAIMER =
-  "HeatSafe Discharge is prototype decision support only. It is not a validated clinical score, diagnostic tool, or substitute for clinician judgment. The treating clinician retains full responsibility for discharge, medication, hydration, and safety decisions.";
+  "HeatSafe Discharge is a hackathon deployment. The workflow prioritization score is not clinically validated, is not an outcome probability, and does not replace clinician judgment. The treating clinician retains full responsibility for discharge, medication, hydration, and safety decisions.";
 
 export type HeatDischargePriority = "routine" | "enhanced" | "high" | "urgent";
+
+export type RiskFactorCategory = "environmental" | "clinical" | "homeSupport";
 
 export type EnvironmentalInput = {
   meanTemperature: number;
   maximumTemperature: number;
+};
+
+export type DestinationEnvironmentalInput = EnvironmentalInput;
+
+export type TransitionEnvironmentalInput = {
+  points: number;
+  label: string;
+  explanation: string;
+};
+
+export type CombinedEnvironmentalInput = {
+  destination: DestinationEnvironmentalInput;
+  transition: TransitionEnvironmentalInput;
 };
 
 export type PatientFactorsInput = {
@@ -99,21 +114,19 @@ export type HomeSocialInput = {
 };
 
 export type HeatDischargeRiskInput = {
-  environmental: EnvironmentalInput;
+  environmental: CombinedEnvironmentalInput;
   patient: PatientFactorsInput;
   medications: MedicationRiskInput;
   homeSocial: HomeSocialInput;
 };
 
-export type HeatDischargeRiskResult = {
-  score: number;
-  priority: HeatDischargePriority;
-  riskFactors: CategorizedRiskFactor[];
-  recommendedActions: DischargeAction[];
-  disclaimer: string;
+export type ScoreContribution = {
+  id: string;
+  category: RiskFactorCategory;
+  label: string;
+  explanation: string;
+  points: number;
 };
-
-export type RiskFactorCategory = "environmental" | "clinical" | "homeSupport";
 
 export type CategorizedRiskFactor = {
   category: RiskFactorCategory;
@@ -128,21 +141,22 @@ export type SuggestedOwner =
   | "community-care team";
 
 export type DischargeAction = {
-  action: string;
-  suggestedOwner: SuggestedOwner;
-};
-
-type ScoredFactor = {
-  points: number;
-  explanation: string;
-  category: RiskFactorCategory;
-};
-
-type RecommendedAction = {
   id: string;
   action: string;
   suggestedOwner: SuggestedOwner;
 };
+
+export type HeatDischargeRiskResult = {
+  score: number;
+  rawScore: number;
+  priority: HeatDischargePriority;
+  contributions: ScoreContribution[];
+  riskFactors: CategorizedRiskFactor[];
+  recommendedActions: DischargeAction[];
+  disclaimer: string;
+};
+
+type RecommendedAction = DischargeAction;
 
 const MEDICATION_LABELS: Record<keyof MedicationRiskInput, string> = {
   diuretic: "diuretic",
@@ -163,197 +177,253 @@ const BASELINE_ACTIONS: RecommendedAction[] = [
   },
 ];
 
-function clampScore(score: number): number {
+export function clampScore(score: number): number {
   return Math.min(100, Math.max(0, Math.round(score)));
 }
 
-function isHighHeat(environmental: EnvironmentalInput): boolean {
+function isHighHeat(environmental: DestinationEnvironmentalInput): boolean {
   return (
     environmental.meanTemperature >= HEAT_THRESHOLDS.meanHigh ||
     environmental.maximumTemperature >= HEAT_THRESHOLDS.maxHigh
   );
 }
 
-function scoreEnvironmental(environmental: EnvironmentalInput): ScoredFactor[] {
-  const factors: ScoredFactor[] = [];
+function scoreDestinationHeat(
+  destination: DestinationEnvironmentalInput
+): ScoreContribution[] {
+  const contributions: ScoreContribution[] = [];
 
-  if (environmental.meanTemperature >= HEAT_THRESHOLDS.meanHigh) {
-    factors.push({
+  if (destination.meanTemperature >= HEAT_THRESHOLDS.meanHigh) {
+    contributions.push({
+      id: "destination-mean-high",
+      category: "environmental",
+      label: "High mean destination heat",
       points: WEIGHTS.environmental.meanTemperatureHigh,
-      category: "environmental",
-      explanation: `Mean ambient temperature is ${environmental.meanTemperature} °C (high heat exposure).`,
+      explanation: `Mean destination temperature is ${destination.meanTemperature} °C (high heat exposure).`,
     });
-  } else if (environmental.meanTemperature >= HEAT_THRESHOLDS.meanModerate) {
-    factors.push({
+  } else if (destination.meanTemperature >= HEAT_THRESHOLDS.meanModerate) {
+    contributions.push({
+      id: "destination-mean-moderate",
+      category: "environmental",
+      label: "Moderate mean destination heat",
       points: WEIGHTS.environmental.meanTemperatureModerate,
-      category: "environmental",
-      explanation: `Mean ambient temperature is ${environmental.meanTemperature} °C (moderate heat exposure).`,
+      explanation: `Mean destination temperature is ${destination.meanTemperature} °C (moderate heat exposure).`,
     });
   }
 
-  if (environmental.maximumTemperature >= HEAT_THRESHOLDS.maxHigh) {
-    factors.push({
+  if (destination.maximumTemperature >= HEAT_THRESHOLDS.maxHigh) {
+    contributions.push({
+      id: "destination-max-high",
+      category: "environmental",
+      label: "High peak destination heat",
       points: WEIGHTS.environmental.maximumTemperatureHigh,
-      category: "environmental",
-      explanation: `Maximum ambient temperature is ${environmental.maximumTemperature} °C (high peak heat).`,
+      explanation: `Maximum destination temperature is ${destination.maximumTemperature} °C (high peak heat).`,
     });
-  } else if (environmental.maximumTemperature >= HEAT_THRESHOLDS.maxModerate) {
-    factors.push({
-      points: WEIGHTS.environmental.maximumTemperatureModerate,
+  } else if (destination.maximumTemperature >= HEAT_THRESHOLDS.maxModerate) {
+    contributions.push({
+      id: "destination-max-moderate",
       category: "environmental",
-      explanation: `Maximum ambient temperature is ${environmental.maximumTemperature} °C (moderate peak heat).`,
+      label: "Moderate peak destination heat",
+      points: WEIGHTS.environmental.maximumTemperatureModerate,
+      explanation: `Maximum destination temperature is ${destination.maximumTemperature} °C (moderate peak heat).`,
     });
   }
 
-  return factors;
+  return contributions;
 }
 
-function scorePatient(patient: PatientFactorsInput): ScoredFactor[] {
-  const factors: ScoredFactor[] = [];
+function scoreTransitionHeat(transition: TransitionEnvironmentalInput): ScoreContribution[] {
+  if (transition.points <= 0) {
+    return [];
+  }
+
+  return [
+    {
+      id: "transition-exposure",
+      category: "environmental",
+      label: transition.label,
+      points: transition.points,
+      explanation: transition.explanation,
+    },
+  ];
+}
+
+function scorePatient(patient: PatientFactorsInput): ScoreContribution[] {
+  const contributions: ScoreContribution[] = [];
 
   if (patient.age >= 75) {
-    factors.push({
-      points: WEIGHTS.patient.age75Plus,
+    contributions.push({
+      id: "age-75-plus",
       category: "clinical",
+      label: "Age ≥75",
+      points: WEIGHTS.patient.age75Plus,
       explanation: `Patient age is ${patient.age} (advanced age increases heat vulnerability).`,
     });
   } else if (patient.age >= 65) {
-    factors.push({
-      points: WEIGHTS.patient.age65to74,
+    contributions.push({
+      id: "age-65-74",
       category: "clinical",
+      label: "Age 65–74",
+      points: WEIGHTS.patient.age65to74,
       explanation: `Patient age is ${patient.age} (older adult heat vulnerability).`,
     });
   }
 
   if (patient.cardiovascularDisease) {
-    factors.push({
-      points: WEIGHTS.patient.cardiovascularDisease,
+    contributions.push({
+      id: "cardiovascular-disease",
       category: "clinical",
+      label: "Cardiovascular disease",
+      points: WEIGHTS.patient.cardiovascularDisease,
       explanation:
         "Cardiovascular disease may reduce tolerance to heat stress during early recovery.",
     });
   }
 
   if (patient.heartFailure) {
-    factors.push({
-      points: WEIGHTS.patient.heartFailure,
+    contributions.push({
+      id: "heart-failure",
       category: "clinical",
+      label: "Heart failure",
+      points: WEIGHTS.patient.heartFailure,
       explanation:
         "Heart failure increases risk during heat events because fluid balance and exertion tolerance are more sensitive.",
     });
   }
 
   if (patient.kidneyDisease) {
-    factors.push({
-      points: WEIGHTS.patient.kidneyDisease,
+    contributions.push({
+      id: "kidney-disease",
       category: "clinical",
+      label: "Kidney disease",
+      points: WEIGHTS.patient.kidneyDisease,
       explanation:
         "Kidney disease increases vulnerability to dehydration and electrolyte shifts during heat exposure.",
     });
   }
 
   if (patient.respiratoryDisease) {
-    factors.push({
-      points: WEIGHTS.patient.respiratoryDisease,
+    contributions.push({
+      id: "respiratory-disease",
       category: "clinical",
+      label: "Respiratory disease",
+      points: WEIGHTS.patient.respiratoryDisease,
       explanation:
         "Respiratory disease may worsen with heat and poor air quality during recovery at home.",
     });
   }
 
   if (patient.diabetes) {
-    factors.push({
-      points: WEIGHTS.patient.diabetes,
+    contributions.push({
+      id: "diabetes",
       category: "clinical",
+      label: "Diabetes",
+      points: WEIGHTS.patient.diabetes,
       explanation:
         "Diabetes can affect thermoregulation and hydration awareness during heat exposure.",
     });
   }
 
   if (patient.cognitiveImpairment) {
-    factors.push({
-      points: WEIGHTS.patient.cognitiveImpairment,
+    contributions.push({
+      id: "cognitive-impairment",
       category: "clinical",
+      label: "Cognitive impairment",
+      points: WEIGHTS.patient.cognitiveImpairment,
       explanation:
         "Cognitive impairment may reduce the ability to recognize or respond to heat-related symptoms.",
     });
   }
 
   if (patient.limitedMobility) {
-    factors.push({
-      points: WEIGHTS.patient.limitedMobility,
+    contributions.push({
+      id: "limited-mobility",
       category: "clinical",
+      label: "Limited mobility",
+      points: WEIGHTS.patient.limitedMobility,
       explanation:
         "Limited mobility may restrict access to cooler spaces, fluids, or help during a heat event.",
     });
   }
 
-  return factors;
+  return contributions;
 }
 
-function scoreMedications(medications: MedicationRiskInput): ScoredFactor[] {
-  const factors: ScoredFactor[] = [];
+function scoreMedications(medications: MedicationRiskInput): ScoreContribution[] {
+  const contributions: ScoreContribution[] = [];
 
   for (const [key, label] of Object.entries(MEDICATION_LABELS) as Array<
     [keyof MedicationRiskInput, string]
   >) {
     if (medications[key]) {
-      factors.push({
-        points: WEIGHTS.medication[key],
+      contributions.push({
+        id: `medication-${key}`,
         category: "clinical",
+        label: label.charAt(0).toUpperCase() + label.slice(1),
+        points: WEIGHTS.medication[key],
         explanation: `Active ${label} therapy may require heat-aware medication review.`,
       });
     }
   }
 
-  return factors;
+  return contributions;
 }
 
-function scoreHomeSocial(homeSocial: HomeSocialInput): ScoredFactor[] {
-  const factors: ScoredFactor[] = [];
+function scoreHomeSocial(homeSocial: HomeSocialInput): ScoreContribution[] {
+  const contributions: ScoreContribution[] = [];
 
   if (!homeSocial.workingAirConditioning) {
-    factors.push({
-      points: WEIGHTS.homeSocial.noWorkingAirConditioning,
+    contributions.push({
+      id: "no-working-ac",
       category: "homeSupport",
+      label: "No working AC",
+      points: WEIGHTS.homeSocial.noWorkingAirConditioning,
       explanation: "No working air conditioning at the planned discharge destination.",
     });
   }
 
   if (homeSocial.livesAlone) {
-    factors.push({
-      points: WEIGHTS.homeSocial.livesAlone,
+    contributions.push({
+      id: "lives-alone",
       category: "homeSupport",
+      label: "Lives alone",
+      points: WEIGHTS.homeSocial.livesAlone,
       explanation: "Patient lives alone without continuous onsite support after discharge.",
     });
   }
 
   if (!homeSocial.reliableTransport) {
-    factors.push({
-      points: WEIGHTS.homeSocial.noReliableTransport,
+    contributions.push({
+      id: "no-reliable-transport",
       category: "homeSupport",
+      label: "No reliable transport",
+      points: WEIGHTS.homeSocial.noReliableTransport,
       explanation: "Reliable transport is not available for follow-up or cooling-centre access.",
     });
   }
 
   if (!homeSocial.caregiverCheckInAvailable) {
-    factors.push({
-      points: WEIGHTS.homeSocial.noCaregiverCheckIn,
+    contributions.push({
+      id: "no-caregiver-check-in",
       category: "homeSupport",
+      label: "No caregiver check-in",
+      points: WEIGHTS.homeSocial.noCaregiverCheckIn,
       explanation: "No caregiver check-in is available during the early post-discharge period.",
     });
   }
 
   if (homeSocial.powerDependentMedicalEquipment) {
-    factors.push({
-      points: WEIGHTS.homeSocial.powerDependentMedicalEquipment,
+    contributions.push({
+      id: "power-dependent-equipment",
       category: "homeSupport",
+      label: "Power-dependent equipment",
+      points: WEIGHTS.homeSocial.powerDependentMedicalEquipment,
       explanation:
         "Patient relies on power-dependent medical equipment that is vulnerable during outages.",
     });
   }
 
-  return factors;
+  return contributions;
 }
 
 function derivePriority(score: number): HeatDischargePriority {
@@ -428,6 +498,15 @@ function buildRecommendedActions(
     });
   }
 
+  if (environmental.transition.points >= 8) {
+    actions.push({
+      id: "transition-heat-planning",
+      suggestedOwner: "discharge coordinator",
+      action:
+        "Review hospital-to-home transition plan for heat exposure during transport (cool vehicle, timing, hydration access, and contingency if travel is delayed).",
+    });
+  }
+
   if (homeSocial.powerDependentMedicalEquipment) {
     actions.push({
       id: "power-outage-contingency",
@@ -438,7 +517,7 @@ function buildRecommendedActions(
   }
 
   if (
-    isHighHeat(environmental) &&
+    isHighHeat(environmental.destination) &&
     (patient.heartFailure || patient.kidneyDisease)
   ) {
     actions.push({
@@ -451,37 +530,31 @@ function buildRecommendedActions(
 
   const seen = new Set<string>();
 
-  return actions
-    .filter(({ id, action }) => {
-      if (seen.has(id)) {
-        return false;
-      }
+  return actions.filter(({ id, action }) => {
+    if (seen.has(id)) {
+      return false;
+    }
 
-      seen.add(id);
-      return Boolean(action);
-    })
-    .map(({ action, suggestedOwner }) => ({ action, suggestedOwner }));
+    seen.add(id);
+    return Boolean(action);
+  });
 }
 
-/**
- * Evaluates heat-related discharge coordination priority from structured,
- * non-identifying workflow inputs. No patient names, MRNs, or addresses are
- * accepted or stored by this function.
- */
 export function evaluateHeatDischargeRisk(
   input: HeatDischargeRiskInput
 ): HeatDischargeRiskResult {
-  const scoredFactors = [
-    ...scoreEnvironmental(input.environmental),
+  const contributions = [
+    ...scoreDestinationHeat(input.environmental.destination),
+    ...scoreTransitionHeat(input.environmental.transition),
     ...scorePatient(input.patient),
     ...scoreMedications(input.medications),
     ...scoreHomeSocial(input.homeSocial),
   ];
 
-  const rawScore = scoredFactors.reduce((total, factor) => total + factor.points, 0);
+  const rawScore = contributions.reduce((total, factor) => total + factor.points, 0);
   const score = clampScore(rawScore);
   const priority = derivePriority(score);
-  const riskFactors = scoredFactors.map(({ category, explanation }) => ({
+  const riskFactors = contributions.map(({ category, explanation }) => ({
     category,
     explanation,
   }));
@@ -489,9 +562,30 @@ export function evaluateHeatDischargeRisk(
 
   return {
     score,
+    rawScore,
     priority,
+    contributions,
     riskFactors,
     recommendedActions,
     disclaimer: DISCLAIMER,
   };
+}
+
+/** Backward-compatible helper for tests using flat destination environmental input. */
+export function createCombinedEnvironmentalInput(
+  destination: DestinationEnvironmentalInput,
+  transition: TransitionEnvironmentalInput
+): CombinedEnvironmentalInput {
+  return { destination, transition };
+}
+
+export function groupContributionsByCategory(contributions: ScoreContribution[]) {
+  const categories: RiskFactorCategory[] = ["environmental", "clinical", "homeSupport"];
+
+  return categories
+    .map((category) => ({
+      category,
+      contributions: contributions.filter((item) => item.category === category),
+    }))
+    .filter((section) => section.contributions.length > 0);
 }

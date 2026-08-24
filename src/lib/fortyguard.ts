@@ -1,12 +1,9 @@
+import type { EnvironmentalQuery } from "@/lib/environmental-query";
+
 const FORTYGUARD_BASE_URL = "https://api.fortyguard.com/v1";
-const POLL_INTERVAL_MS = 5000;
-const POLL_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
-const MAX_POLL_ATTEMPTS = POLL_TIMEOUT_MS / POLL_INTERVAL_MS;
 
 const SUCCESS_STATUSES = new Set(["completed", "succeeded"]);
 const FAILURE_STATUSES = new Set(["failed", "error"]);
-
-const METERS_PER_DEGREE_LAT = 111_320;
 
 export type GeoJSONFeatureCollection = {
   type: "FeatureCollection";
@@ -20,20 +17,6 @@ export type GeoJSONFeatureCollection = {
   }>;
 };
 
-export type HeatRiskInput = {
-  latitude: number;
-  longitude: number;
-  date: string;
-  time: string;
-};
-
-export type HeatRiskResult = {
-  activityId: string;
-  status: string;
-  temperatureStats: unknown;
-  mapData: unknown;
-};
-
 type FortyGuardEnvelope<T> = {
   error?: boolean;
   status_code?: number;
@@ -45,13 +28,25 @@ type HeatmapSubmissionData = {
   activity_id?: string;
 };
 
-type HeatmapStatusData = {
+export type HeatmapStatusData = {
   activity_id?: string;
   status?: string;
   result?: {
     map_data?: unknown;
     stats_data?: unknown;
   };
+};
+
+export type HeatmapStatusCheckResult = {
+  activityId: string;
+  normalizedStatus: string;
+  rawStatus: string;
+  completed: boolean;
+  failed: boolean;
+  processing: boolean;
+  statsData: unknown;
+  mapData: unknown;
+  envelope: FortyGuardEnvelope<HeatmapStatusData>;
 };
 
 export class FortyGuardError extends Error {
@@ -66,6 +61,8 @@ export class FortyGuardError extends Error {
     this.kind = kind;
   }
 }
+
+const METERS_PER_DEGREE_LAT = 111_320;
 
 function getApiKey(): string {
   const apiKey = process.env.FORTYGUARD_API_KEY;
@@ -87,14 +84,6 @@ function authHeaders(apiKey: string, includeJsonContentType = false) {
   };
 }
 
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/**
- * Builds a closed square GeoJSON polygon centered on a point.
- * FortyGuard expects polygon_aoi as a FeatureCollection with lng/lat pairs.
- */
 export function buildSquarePolygonAroundPoint(
   latitude: number,
   longitude: number,
@@ -129,26 +118,27 @@ export function buildSquarePolygonAroundPoint(
   };
 }
 
-async function submitHeatmapJob(
-  apiKey: string,
-  polygonAoi: GeoJSONFeatureCollection,
-  date: string,
-  time: string
+export async function submitHeatmapJobForQuery(
+  query: EnvironmentalQuery
 ): Promise<string> {
-  // Submission: POST the area of interest and analysis parameters to FortyGuard.
-  // Heatmap generation is asynchronous — the API queues work and returns immediately
-  // with an activity_id that identifies this specific background job.
+  const apiKey = getApiKey();
+  const polygonAoi = buildSquarePolygonAroundPoint(
+    query.latitude,
+    query.longitude,
+    query.aoiSideMeters
+  );
+
   const response = await fetch(`${FORTYGUARD_BASE_URL}/heatmap`, {
     method: "POST",
     headers: authHeaders(apiKey, true),
     body: JSON.stringify({
       polygon_aoi: polygonAoi,
       date_time: {
-        start_date: date,
-        start_time: time,
+        start_date: query.startDate,
+        start_time: query.startTime,
         filter_type: 1,
       },
-      granularity: 100,
+      granularity: query.granularity,
     }),
   });
 
@@ -182,86 +172,58 @@ async function submitHeatmapJob(
   return activityId;
 }
 
-async function pollUntilComplete(
-  apiKey: string,
+export async function checkHeatmapStatusOnce(
   activityId: string
-): Promise<FortyGuardEnvelope<HeatmapStatusData>> {
-  // Polling: repeatedly query the status endpoint with the activity_id until the
-  // analysis finishes. Jobs move through states such as "Processing" before
-  // reaching a terminal success or failure status.
-  for (let attempt = 1; attempt <= MAX_POLL_ATTEMPTS; attempt++) {
-    const response = await fetch(
-      `${FORTYGUARD_BASE_URL}/status/${activityId}`,
-      {
-        method: "GET",
-        headers: authHeaders(apiKey),
-      }
+): Promise<HeatmapStatusCheckResult> {
+  const apiKey = getApiKey();
+
+  const response = await fetch(`${FORTYGUARD_BASE_URL}/status/${activityId}`, {
+    method: "GET",
+    headers: authHeaders(apiKey),
+  });
+
+  let result: FortyGuardEnvelope<HeatmapStatusData>;
+
+  try {
+    result = await response.json();
+  } catch {
+    throw new FortyGuardError(
+      "FortyGuard returned an unreadable status response.",
+      "polling"
     );
-
-    let result: FortyGuardEnvelope<HeatmapStatusData>;
-
-    try {
-      result = await response.json();
-    } catch {
-      throw new FortyGuardError(
-        "FortyGuard returned an unreadable status response.",
-        "polling"
-      );
-    }
-
-    if (!response.ok) {
-      throw new FortyGuardError(
-        `FortyGuard status poll failed with status ${response.status}.`,
-        "polling"
-      );
-    }
-
-    const status = String(result.data?.status ?? "").toLowerCase();
-
-    if (SUCCESS_STATUSES.has(status)) {
-      return result;
-    }
-
-    if (FAILURE_STATUSES.has(status)) {
-      throw new FortyGuardError(
-        `FortyGuard reported a failed heatmap analysis (${status}).`,
-        "failed"
-      );
-    }
-
-    if (attempt < MAX_POLL_ATTEMPTS) {
-      await sleep(POLL_INTERVAL_MS);
-    }
   }
 
-  throw new FortyGuardError(
-    "FortyGuard heatmap analysis timed out before completion.",
-    "timeout"
-  );
-}
+  if (!response.ok) {
+    throw new FortyGuardError(
+      `FortyGuard status poll failed with status ${response.status}.`,
+      "polling"
+    );
+  }
 
-export async function fetchHeatRiskAnalysis(
-  input: HeatRiskInput
-): Promise<HeatRiskResult> {
-  const apiKey = getApiKey();
-  const polygonAoi = buildSquarePolygonAroundPoint(
-    input.latitude,
-    input.longitude
-  );
-
-  const activityId = await submitHeatmapJob(
-    apiKey,
-    polygonAoi,
-    input.date,
-    input.time
-  );
-
-  const completed = await pollUntilComplete(apiKey, activityId);
+  const rawStatus = String(result.data?.status ?? "");
+  const normalizedStatus = rawStatus.toLowerCase();
 
   return {
     activityId,
-    status: completed.data?.status ?? "completed",
-    temperatureStats: completed.data?.result?.stats_data ?? null,
-    mapData: completed.data?.result?.map_data ?? null,
+    normalizedStatus,
+    rawStatus,
+    completed: SUCCESS_STATUSES.has(normalizedStatus),
+    failed: FAILURE_STATUSES.has(normalizedStatus),
+    processing: !SUCCESS_STATUSES.has(normalizedStatus) && !FAILURE_STATUSES.has(normalizedStatus),
+    statsData: result.data?.result?.stats_data ?? null,
+    mapData: result.data?.result?.map_data ?? null,
+    envelope: result,
   };
+}
+
+export function normalizeFortyGuardStatus(status: string | undefined): string {
+  return String(status ?? "").toLowerCase();
+}
+
+export function isFortyGuardCompletedStatus(status: string | undefined): boolean {
+  return SUCCESS_STATUSES.has(normalizeFortyGuardStatus(status));
+}
+
+export function isFortyGuardFailedStatus(status: string | undefined): boolean {
+  return FAILURE_STATUSES.has(normalizeFortyGuardStatus(status));
 }

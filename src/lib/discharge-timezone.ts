@@ -83,8 +83,7 @@ function formatUtcDateTime(utcMs: number): WallDateTime {
 }
 
 /**
- * Converts a wall-clock date/time in the discharge destination IANA time zone
- * to the UTC date/time expected by FortyGuard.
+ * Converts a wall-clock date/time in an IANA time zone to UTC.
  */
 export function convertLocalDateTimeToUtc(
   local: WallDateTime,
@@ -141,4 +140,84 @@ export function buildUtcDateTimeMetadata(utc: WallDateTime): DateTimeMetadata {
     ...utc,
     display: formatUtcDateTimeDisplay(utc),
   };
+}
+
+function toLocalDateParts(local: WallDateTime) {
+  const [year, month, day] = local.date.split("-").map(Number);
+  const [hour, minute] = local.time.split(":").map(Number);
+
+  return { year, month, day, hour, minute };
+}
+
+/**
+ * Adds configured journey duration to a wall-clock local date/time.
+ * Handles calendar rollover in local wall-clock terms (not IANA DST edge cases).
+ */
+export function addDurationToLocalDateTime(
+  local: WallDateTime,
+  durationMinutes: number
+): WallDateTime {
+  const { year, month, day, hour, minute } = toLocalDateParts(local);
+  const start = new Date(Date.UTC(year, month - 1, day, hour, minute));
+  const arrival = new Date(start.getTime() + durationMinutes * 60_000);
+
+  return {
+    date: `${arrival.getUTCFullYear()}-${pad2(arrival.getUTCMonth() + 1)}-${pad2(arrival.getUTCDate())}`,
+    time: `${pad2(arrival.getUTCHours())}:${pad2(arrival.getUTCMinutes())}`,
+  };
+}
+
+const SHORT_MONTH_NAMES = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+] as const;
+
+export const FORTYGUARD_SINGLE_HOUR_NOTE =
+  "FortyGuard Single Hour data is queried for the local hourly window containing the estimated arrival time.";
+
+/**
+ * Maps a local wall-clock datetime to the containing whole-hour bucket by
+ * flooring minutes to :00. FortyGuard filter_type=1 expects a Single Hour window.
+ */
+export function floorLocalDateTimeToHour(local: WallDateTime): WallDateTime {
+  const { year, month, day, hour } = toLocalDateParts(local);
+
+  return {
+    date: `${year}-${pad2(month)}-${pad2(day)}`,
+    time: `${pad2(hour)}:00`,
+  };
+}
+
+export function formatLocalDateTimeCompactLocal(local: WallDateTime): string {
+  const [year, month, day] = local.date.split("-").map(Number);
+  const [hour, minute] = local.time.split(":").map(Number);
+
+  return `${day} ${SHORT_MONTH_NAMES[month - 1]} ${year}, ${pad2(hour)}:${pad2(minute)} local`;
+}
+
+export function formatFortyGuardQueryWindowLocal(
+  queryHour: WallDateTime,
+  timeZone: string
+): string {
+  const windowEnd = addDurationToLocalDateTime(queryHour, 60);
+
+  return `${queryHour.date} ${queryHour.time}–${windowEnd.time} ${timeZone}`;
+}
+
+export function formatFortyGuardQueryWindowDisplay(
+  queryHour: WallDateTime
+): string {
+  const windowEnd = addDurationToLocalDateTime(queryHour, 60);
+
+  return `${queryHour.time}–${windowEnd.time} local`;
 }

@@ -8,29 +8,79 @@ const POLL_INTERVAL_MS = 5000;
 const MAX_ATTEMPTS = 120;
 const SUCCESS_STATUSES = new Set(["completed", "succeeded"]);
 const FAILURE_STATUSES = new Set(["failed", "error"]);
+const TEST_HEATMAP_TIME = process.env.TEST_HEATMAP_TIME ?? "14:00";
 
-// Small GeoJSON polygon in central Phoenix (lng, lat pairs; closed ring).
-const PHOENIX_POLYGON_AOI = {
-  type: "FeatureCollection",
-  features: [
-    {
-      type: "Feature",
-      properties: {},
-      geometry: {
-        type: "Polygon",
-        coordinates: [
-          [
-            [-112.0760, 33.4464],
-            [-112.0720, 33.4464],
-            [-112.0720, 33.4504],
-            [-112.0760, 33.4504],
-            [-112.0760, 33.4464],
-          ],
-        ],
-      },
-    },
-  ],
+/** HeatSafe Case A — Central Phoenix destination at estimated arrival time. */
+const CASE_A = {
+  label: "Central Phoenix, Arizona",
+  latitude: 33.4484,
+  longitude: -112.074,
+  departureDate: "2026-08-18",
+  departureTimeLocal: "14:00",
+  timeZone: "America/Phoenix",
+  journeyDurationMinutes: 45,
+  estimatedArrivalLocal: "14:45",
+  fortyGuardQueryDate: "2026-08-18",
+  fortyGuardQueryHourLocal: "14:00",
 };
+
+const METERS_PER_DEGREE_LAT = 111_320;
+const AOI_SIDE_METERS = 400;
+
+/**
+ * Mirrors src/lib/fortyguard.ts buildSquarePolygonAroundPoint().
+ * Keep geometry logic aligned with the application helper.
+ */
+function buildSquarePolygonAroundPoint(latitude, longitude, sideMeters = AOI_SIDE_METERS) {
+  const halfSideMeters = sideMeters / 2;
+  const deltaLat = halfSideMeters / METERS_PER_DEGREE_LAT;
+  const deltaLng =
+    halfSideMeters /
+    (METERS_PER_DEGREE_LAT * Math.cos((latitude * Math.PI) / 180));
+
+  const ring = [
+    [longitude - deltaLng, latitude - deltaLat],
+    [longitude + deltaLng, latitude - deltaLat],
+    [longitude + deltaLng, latitude + deltaLat],
+    [longitude - deltaLng, latitude + deltaLat],
+    [longitude - deltaLng, latitude - deltaLat],
+  ];
+
+  return {
+    type: "FeatureCollection",
+    features: [
+      {
+        type: "Feature",
+        properties: {},
+        geometry: {
+          type: "Polygon",
+          coordinates: [ring],
+        },
+      },
+    ],
+  };
+}
+
+const polygonAoi = buildSquarePolygonAroundPoint(
+  CASE_A.latitude,
+  CASE_A.longitude
+);
+
+const heatmapRequestBody = {
+  polygon_aoi: polygonAoi,
+  date_time: {
+    start_date: CASE_A.fortyGuardQueryDate,
+    start_time: TEST_HEATMAP_TIME,
+    filter_type: 1,
+  },
+  granularity: 100,
+};
+
+function formatFortyGuardQueryWindowLocal(date, queryHourTime, timeZone) {
+  const [hour] = queryHourTime.split(":").map(Number);
+  const endHour = `${String(hour + 1).padStart(2, "0")}:00`;
+  return `${date} ${queryHourTime}–${endHour} ${timeZone}`;
+}
 
 function authHeaders() {
   return {
@@ -39,22 +89,40 @@ function authHeaders() {
   };
 }
 
+function printSanitizedRequest() {
+  console.log(`Diagnostic test time: ${TEST_HEATMAP_TIME}`);
+  console.log("HeatSafe Case A manual FortyGuard request (sanitized):");
+  console.log(
+    JSON.stringify(
+      {
+        scenario: {
+          destination: CASE_A.label,
+          latitude: CASE_A.latitude,
+          longitude: CASE_A.longitude,
+          plannedDepartureLocal: `${CASE_A.departureDate} ${CASE_A.departureTimeLocal} ${CASE_A.timeZone}`,
+          configuredJourneyDurationMinutes: CASE_A.journeyDurationMinutes,
+          estimatedArrivalLocal: `${CASE_A.departureDate} ${CASE_A.estimatedArrivalLocal} ${CASE_A.timeZone}`,
+          fortyGuardQueryWindowLocal: formatFortyGuardQueryWindowLocal(
+            CASE_A.fortyGuardQueryDate,
+            TEST_HEATMAP_TIME,
+            CASE_A.timeZone
+          ),
+        },
+        requestBody: heatmapRequestBody,
+      },
+      null,
+      2
+    )
+  );
+}
+
 async function submitHeatmapJob() {
-  // Submission: POST the area of interest and analysis parameters to FortyGuard.
-  // Heatmap generation is asynchronous — the API queues work and returns immediately
-  // with an activity_id that identifies this specific background job.
+  printSanitizedRequest();
+
   const response = await fetch("https://api.fortyguard.com/v1/heatmap", {
     method: "POST",
     headers: authHeaders(),
-    body: JSON.stringify({
-      polygon_aoi: PHOENIX_POLYGON_AOI,
-      date_time: {
-        start_date: "2026-08-18",
-        start_time: "14:00",
-        filter_type: 1,
-      },
-      granularity: 100,
-    }),
+    body: JSON.stringify(heatmapRequestBody),
   });
 
   const result = await response.json();
@@ -65,7 +133,6 @@ async function submitHeatmapJob() {
     );
   }
 
-  // activity_id is the handle used to track this job until results are ready.
   const activityId = result.data?.activity_id;
 
   if (!activityId) {
@@ -79,9 +146,6 @@ async function submitHeatmapJob() {
 }
 
 async function pollUntilComplete(activityId) {
-  // Polling: repeatedly query the status endpoint with the activity_id until the
-  // analysis finishes. Jobs move through states such as "Processing" before
-  // reaching a terminal success or failure status.
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     const response = await fetch(
       `https://api.fortyguard.com/v1/status/${activityId}`,

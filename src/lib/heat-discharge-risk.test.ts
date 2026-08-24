@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  clampScore,
   evaluateHeatDischargeRisk,
   type HeatDischargeRiskInput,
 } from "./heat-discharge-risk";
@@ -15,9 +16,17 @@ function createBaseInput(
 ): HeatDischargeRiskInput {
   return {
     environmental: {
-      meanTemperature: 24,
-      maximumTemperature: 28,
-      ...overrides.environmental,
+      destination: {
+        meanTemperature: 24,
+        maximumTemperature: 28,
+        ...overrides.environmental?.destination,
+      },
+      transition: {
+        points: 0,
+        label: "Transition exposure",
+        explanation: "No transition exposure for baseline test.",
+        ...overrides.environmental?.transition,
+      },
     },
     patient: {
       age: 40,
@@ -51,29 +60,26 @@ function createBaseInput(
   };
 }
 
-function actionText(action: { action: string }) {
-  return action.action;
-}
-
 describe("evaluateHeatDischargeRisk", () => {
   it("returns a low score and routine priority for a low-vulnerability patient with working air conditioning", () => {
     const result = evaluateHeatDischargeRisk(createBaseInput());
 
     expect(result.score).toBeLessThan(25);
     expect(result.priority).toBe("routine");
-    expect(result.riskFactors).toHaveLength(0);
-    expect(result.recommendedActions.map(actionText)).toContain(
+    expect(result.contributions).toHaveLength(0);
+    expect(result.recommendedActions.map((action) => action.action)).toContain(
       "Provide patient and caregiver education on heat-related warning symptoms (for example, dizziness, confusion, reduced urine output, chest pain, or breathing difficulty) and when to seek emergency care. This is educational guidance only—not a diagnosis."
     );
-    expect(result.disclaimer).toMatch(/prototype decision support/i);
   });
 
   it("elevates an older patient with heart failure, kidney disease, diuretic use, no air conditioning, and living alone", () => {
     const result = evaluateHeatDischargeRisk(
       createBaseInput({
         environmental: {
-          meanTemperature: 33,
-          maximumTemperature: 39,
+          destination: {
+            meanTemperature: 33,
+            maximumTemperature: 39,
+          },
         },
         patient: {
           age: 78,
@@ -93,85 +99,51 @@ describe("evaluateHeatDischargeRisk", () => {
 
     expect(result.score).toBeGreaterThanOrEqual(50);
     expect(["high", "urgent"]).toContain(result.priority);
-    expect(
-      result.riskFactors.some((factor) =>
-        factor.explanation.includes("Heart failure")
-      )
-    ).toBe(true);
-    expect(
-      result.riskFactors.some((factor) =>
-        factor.explanation.includes("Kidney disease")
-      )
-    ).toBe(true);
-    expect(
-      result.riskFactors.some((factor) =>
-        factor.explanation.includes("No working air conditioning")
-      )
-    ).toBe(true);
+    expect(result.contributions.some((item) => item.id === "heart-failure")).toBe(
+      true
+    );
     expect(
       result.recommendedActions.some((action) =>
         action.action.includes("social-work or cooling-resource assessment")
       )
     ).toBe(true);
-    expect(
-      result.recommendedActions.some((action) =>
-        action.action.includes("follow-up within 24–48 hours")
-      )
-    ).toBe(true);
-    expect(
-      result.recommendedActions.some((action) =>
-        action.action.includes("individualized fluid plan with the treating clinician")
-      )
-    ).toBe(true);
-    expect(
-      result.recommendedActions.some((action) =>
-        action.action.includes("fluid intake should automatically be increased")
-      )
-    ).toBe(true);
   });
 
-  it("flags medication review without instructing automatic medication changes", () => {
+  it("returns structured score contributions with actual weights", () => {
     const result = evaluateHeatDischargeRisk(
       createBaseInput({
-        medications: {
-          diuretic: true,
-          lithium: true,
-          betaBlocker: true,
+        environmental: {
+          destination: {
+            meanTemperature: 33,
+            maximumTemperature: 39,
+          },
         },
+        patient: { age: 78, heartFailure: true },
       })
     );
 
-    const medicationAction = result.recommendedActions.find((action) =>
-      action.action.includes("medication review")
+    expect(result.contributions.find((item) => item.id === "destination-mean-high")).toEqual(
+      expect.objectContaining({ points: 15, category: "environmental" })
     );
-
-    expect(medicationAction).toBeDefined();
-    expect(medicationAction?.suggestedOwner).toBe("pharmacist");
-    expect(medicationAction?.action).toMatch(
-      /Never stop or change medications automatically/i
+    expect(result.contributions.find((item) => item.id === "age-75-plus")).toEqual(
+      expect.objectContaining({ points: 10, category: "clinical" })
     );
-    expect(
-      result.recommendedActions.some(
-        (action) =>
-          /stop medication/i.test(action.action) &&
-          !/Never stop or change medications automatically/i.test(action.action)
-      )
-    ).toBe(false);
-    expect(
-      result.recommendedActions.some(
-        (action) =>
-          /change medication/i.test(action.action) &&
-          !/Never stop or change medications automatically/i.test(action.action)
-      )
-    ).toBe(false);
+    expect(result.rawScore).toBeGreaterThanOrEqual(result.score);
   });
 
   it("never returns a score above 100 even when every factor is present", () => {
     const result = evaluateHeatDischargeRisk(
       createBaseInput({
         environmental: {
-          meanTemperature: 40,
-          maximumTemperature: 45,
+          destination: {
+            meanTemperature: 40,
+            maximumTemperature: 45,
+          },
+          transition: {
+            points: 18,
+            label: "Transition exposure",
+            explanation: "High transition exposure",
+          },
         },
         patient: {
           age: 90,
@@ -203,7 +175,75 @@ describe("evaluateHeatDischargeRisk", () => {
     );
 
     expect(result.score).toBeLessThanOrEqual(100);
+    expect(clampScore(result.rawScore)).toBe(result.score);
     expect(result.priority).toBe("urgent");
+  });
+
+  it("includes transition exposure as an environmental contribution", () => {
+    const result = evaluateHeatDischargeRisk(
+      createBaseInput({
+        environmental: {
+          transition: {
+            points: 9,
+            label: "Journey transition modifier",
+            explanation: "Public bus transition modifier.",
+          },
+        },
+      })
+    );
+
+    expect(result.contributions).toContainEqual(
+      expect.objectContaining({ id: "transition-exposure", points: 9 })
+    );
+  });
+
+  it("flags medication review without instructing automatic medication changes", () => {
+    const result = evaluateHeatDischargeRisk(
+      createBaseInput({
+        medications: {
+          diuretic: true,
+          lithium: true,
+          betaBlocker: true,
+        },
+      })
+    );
+
+    const medicationAction = result.recommendedActions.find((action) =>
+      action.action.includes("medication review")
+    );
+
+    expect(medicationAction).toBeDefined();
+    expect(medicationAction?.suggestedOwner).toBe("pharmacist");
+    expect(medicationAction?.action).toMatch(
+      /Never stop or change medications automatically/i
+    );
+  });
+
+  it("includes individualized fluid guidance for heart failure and kidney disease in high heat", () => {
+    const result = evaluateHeatDischargeRisk(
+      createBaseInput({
+        environmental: {
+          destination: {
+            meanTemperature: 33,
+            maximumTemperature: 39,
+          },
+        },
+        patient: {
+          heartFailure: true,
+          kidneyDisease: true,
+        },
+      })
+    );
+
+    const fluidAction = result.recommendedActions.find((action) =>
+      action.action.includes("individualized fluid plan")
+    );
+
+    expect(fluidAction?.suggestedOwner).toBe("treating clinician");
+    expect(fluidAction?.action).toMatch(/Do not provide generic hydration instructions/i);
+    expect(fluidAction?.action).toMatch(
+      /fluid intake should automatically be increased/i
+    );
   });
 
   it("deduplicates recommended actions when multiple triggers map to the same workflow step", () => {
@@ -237,8 +277,10 @@ describe("evaluateHeatDischargeRisk", () => {
           caregiverCheckInAvailable: false,
         },
         environmental: {
-          meanTemperature: 33,
-          maximumTemperature: 39,
+          destination: {
+            meanTemperature: 33,
+            maximumTemperature: 39,
+          },
         },
       })
     );

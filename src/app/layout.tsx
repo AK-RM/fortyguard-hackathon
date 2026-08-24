@@ -4,7 +4,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "HeatSafe Discharge",
   description:
-    "Assess environmental heat risk before hospital discharge using live FortyGuard data.",
+    "Heat-aware hospital discharge coordination platform using FortyGuard environmental data.",
 };
 
 export default function RootLayout({

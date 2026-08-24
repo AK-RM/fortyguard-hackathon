@@ -1,9 +1,5 @@
-import DischargeAssessment from "@/components/discharge-assessment";
+import DischargeDashboard from "@/components/discharge-dashboard";
 
-export default function Home() {
-  return (
-    <main>
-      <DischargeAssessment />
-    </main>
-  );
+export default function HomePage() {
+  return <DischargeDashboard />;
 }

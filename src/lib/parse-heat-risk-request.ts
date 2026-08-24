@@ -1,18 +1,27 @@
+import { isSupportedArizonaLocation, ARIZONA_COVERAGE_ERROR } from "@/lib/arizona-locations";
 import { isValidIanaTimeZone } from "@/lib/discharge-timezone";
-import {
-  HACKATHON_DEMO_ENVIRONMENT_ERROR,
-  isSupportedHackathonDemoEnvironment,
-} from "@/lib/discharge-locations";
+import type { EnvironmentalCacheStore } from "@/lib/environmental-cache";
+import type { EnvironmentalResult } from "@/lib/environmental-result";
 import type {
   HomeSocialInput,
   MedicationRiskInput,
   PatientFactorsInput,
 } from "@/lib/heat-discharge-risk";
 import type { HeatRiskAssessmentRequest } from "@/types/heat-risk-api";
+import type { DischargeLocation, DischargeJourney, TransportMode } from "@/types/discharge-workflow";
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
 const MAX_AGE = 120;
+
+const TRANSPORT_MODES = [
+  "ac_private_vehicle",
+  "taxi_rideshare",
+  "ambulance",
+  "public_bus",
+  "walking",
+  "other",
+] as const satisfies readonly TransportMode[];
 
 const PATIENT_BOOLEAN_FIELDS = [
   "cardiovascularDisease",
@@ -43,6 +52,27 @@ const HOME_SOCIAL_FIELDS = [
 ] as const satisfies ReadonlyArray<keyof HomeSocialInput>;
 
 export type ParsedHeatRiskRequest = HeatRiskAssessmentRequest | { error: string };
+
+function parseClientEnvironmentalCache(
+  value: unknown
+): EnvironmentalCacheStore | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const entries = Object.entries(value as Record<string, unknown>);
+  const cache: EnvironmentalCacheStore = {};
+
+  for (const [key, item] of entries) {
+    if (typeof item !== "object" || item === null || Array.isArray(item)) {
+      continue;
+    }
+
+    cache[key] = item as EnvironmentalResult;
+  }
+
+  return cache;
+}
 
 function parseStrictBoolean(
   value: unknown,
@@ -82,6 +112,110 @@ function parseBooleanRecord<T extends Record<string, boolean>>(
   }
 
   return parsed;
+}
+
+function parseLocation(
+  value: unknown,
+  fieldName: string
+): DischargeLocation | { error: string } {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return { error: `${fieldName} must be an object.` };
+  }
+
+  const record = value as Record<string, unknown>;
+
+  if (typeof record.label !== "string" || record.label.trim().length === 0) {
+    return { error: `${fieldName}.label must be a non-empty string.` };
+  }
+
+  if (typeof record.latitude !== "number" || !Number.isFinite(record.latitude)) {
+    return { error: `${fieldName}.latitude must be a finite number.` };
+  }
+
+  if (record.latitude < -90 || record.latitude > 90) {
+    return { error: `${fieldName}.latitude must be between -90 and 90.` };
+  }
+
+  if (typeof record.longitude !== "number" || !Number.isFinite(record.longitude)) {
+    return { error: `${fieldName}.longitude must be a finite number.` };
+  }
+
+  if (record.longitude < -180 || record.longitude > 180) {
+    return { error: `${fieldName}.longitude must be between -180 and 180.` };
+  }
+
+  if (!isSupportedArizonaLocation(record.latitude, record.longitude)) {
+    return { error: ARIZONA_COVERAGE_ERROR };
+  }
+
+  return {
+    label: record.label.trim(),
+    latitude: record.latitude,
+    longitude: record.longitude,
+  };
+}
+
+function parseJourney(value: unknown): DischargeJourney | { error: string } {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return { error: "journey must be an object." };
+  }
+
+  const record = value as Record<string, unknown>;
+
+  if (typeof record.date !== "string" || !DATE_PATTERN.test(record.date)) {
+    return { error: "journey.date must be a string in YYYY-MM-DD format." };
+  }
+
+  const [year, month, day] = record.date.split("-").map(Number);
+  const parsedDate = new Date(Date.UTC(year, month - 1, day));
+
+  if (
+    parsedDate.getUTCFullYear() !== year ||
+    parsedDate.getUTCMonth() !== month - 1 ||
+    parsedDate.getUTCDate() !== day
+  ) {
+    return { error: "journey.date must be a valid calendar date." };
+  }
+
+  if (typeof record.time !== "string" || !TIME_PATTERN.test(record.time)) {
+    return { error: "journey.time must be a string in HH:MM format." };
+  }
+
+  if (typeof record.timeZone !== "string" || record.timeZone.trim().length === 0) {
+    return {
+      error: "journey.timeZone must be a non-empty IANA time zone for the discharge destination.",
+    };
+  }
+
+  if (!isValidIanaTimeZone(record.timeZone)) {
+    return { error: "journey.timeZone must be a valid IANA time zone identifier." };
+  }
+
+  if (
+    typeof record.transportMode !== "string" ||
+    !TRANSPORT_MODES.includes(record.transportMode as TransportMode)
+  ) {
+    return { error: "journey.transportMode must be a supported transport mode." };
+  }
+
+  if (
+    typeof record.durationMinutes !== "number" ||
+    !Number.isFinite(record.durationMinutes) ||
+    record.durationMinutes <= 0 ||
+    record.durationMinutes > 480
+  ) {
+    return {
+      error: "journey.durationMinutes must be a finite number between 1 and 480.",
+    };
+  }
+
+  return {
+    date: record.date,
+    time: record.time,
+    timeZone: record.timeZone.trim(),
+    transportMode: record.transportMode as TransportMode,
+    durationMinutes: Math.round(record.durationMinutes),
+  };
 }
 
 function parsePatient(value: unknown): PatientFactorsInput | { error: string } {
@@ -140,73 +274,25 @@ export function parseHeatRiskRequest(body: unknown): ParsedHeatRiskRequest {
     return { error: "Request body must be a JSON object." };
   }
 
-  const {
-    latitude,
-    longitude,
-    date,
-    time,
-    timeZone,
-    patient,
-    medications,
-    homeSocial,
-  } = body as Record<string, unknown>;
+  const { origin, destination, journey, patient, medications, homeSocial, forceRefresh, clientEnvironmentalCache } =
+    body as Record<string, unknown>;
 
-  if (typeof latitude !== "number" || !Number.isFinite(latitude)) {
-    return { error: "latitude must be a finite number." };
+  const parsedOrigin = parseLocation(origin, "origin");
+
+  if ("error" in parsedOrigin) {
+    return parsedOrigin;
   }
 
-  if (latitude < -90 || latitude > 90) {
-    return { error: "latitude must be between -90 and 90." };
+  const parsedDestination = parseLocation(destination, "destination");
+
+  if ("error" in parsedDestination) {
+    return parsedDestination;
   }
 
-  if (typeof longitude !== "number" || !Number.isFinite(longitude)) {
-    return { error: "longitude must be a finite number." };
-  }
+  const parsedJourney = parseJourney(journey);
 
-  if (longitude < -180 || longitude > 180) {
-    return { error: "longitude must be between -180 and 180." };
-  }
-
-  if (typeof date !== "string" || !DATE_PATTERN.test(date)) {
-    return { error: "date must be a string in YYYY-MM-DD format." };
-  }
-
-  const [year, month, day] = date.split("-").map(Number);
-  const parsedDate = new Date(Date.UTC(year, month - 1, day));
-
-  if (
-    parsedDate.getUTCFullYear() !== year ||
-    parsedDate.getUTCMonth() !== month - 1 ||
-    parsedDate.getUTCDate() !== day
-  ) {
-    return { error: "date must be a valid calendar date." };
-  }
-
-  if (typeof time !== "string" || !TIME_PATTERN.test(time)) {
-    return { error: "time must be a string in HH:MM format." };
-  }
-
-  if (typeof timeZone !== "string" || timeZone.trim().length === 0) {
-    return {
-      error:
-        "timeZone must be a non-empty IANA time zone for the discharge destination.",
-    };
-  }
-
-  if (!isValidIanaTimeZone(timeZone)) {
-    return { error: "timeZone must be a valid IANA time zone identifier." };
-  }
-
-  if (
-    !isSupportedHackathonDemoEnvironment({
-      latitude,
-      longitude,
-      date,
-      time,
-      timeZone,
-    })
-  ) {
-    return { error: HACKATHON_DEMO_ENVIRONMENT_ERROR };
+  if ("error" in parsedJourney) {
+    return parsedJourney;
   }
 
   const parsedPatient = parsePatient(patient);
@@ -227,14 +313,22 @@ export function parseHeatRiskRequest(body: unknown): ParsedHeatRiskRequest {
     return parsedHomeSocial;
   }
 
-  return {
-    latitude,
-    longitude,
-    date,
-    time,
-    timeZone,
+  const parsedRequest = {
+    origin: parsedOrigin,
+    destination: parsedDestination,
+    journey: parsedJourney,
     patient: parsedPatient,
     medications: parsedMedications,
     homeSocial: parsedHomeSocial,
+    ...(forceRefresh === true ? { forceRefresh: true } : {}),
+    ...(parseClientEnvironmentalCache(clientEnvironmentalCache)
+      ? {
+          clientEnvironmentalCache: parseClientEnvironmentalCache(
+            clientEnvironmentalCache
+          ),
+        }
+      : {}),
   };
+
+  return parsedRequest;
 }

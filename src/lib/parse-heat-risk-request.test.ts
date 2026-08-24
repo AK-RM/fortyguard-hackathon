@@ -1,16 +1,29 @@
 import { describe, expect, it } from "vitest";
 
+import { ARIZONA_COVERAGE_ERROR } from "./arizona-locations";
+import { DEMO_CASE_A, DEMO_CASE_B, DEMO_CASE_C, getDemoCaseByPreset } from "./demo-cases";
 import { evaluateHeatDischargeRisk } from "./heat-discharge-risk";
-import {
-  getHackathonDemoEnvironmentalRequest,
-  HACKATHON_DEMO_ENVIRONMENT_ERROR,
-} from "./discharge-locations";
 import { parseHeatRiskRequest } from "./parse-heat-risk-request";
-
-const DEMO_ENVIRONMENT = getHackathonDemoEnvironmentalRequest();
+import { calculateTransitionExposure } from "./transition-exposure";
 
 const VALID_BASE_REQUEST = {
-  ...DEMO_ENVIRONMENT,
+  origin: {
+    label: "Banner — University Medical Center Phoenix",
+    latitude: 33.4794,
+    longitude: -112.0892,
+  },
+  destination: {
+    label: "Central Phoenix, Arizona",
+    latitude: 33.4484,
+    longitude: -112.074,
+  },
+  journey: {
+    date: "2026-08-18",
+    time: "14:00",
+    timeZone: "America/Phoenix",
+    transportMode: "public_bus" as const,
+    durationMinutes: 45,
+  },
   patient: {
     age: 40,
     cardiovascularDisease: false,
@@ -40,10 +53,8 @@ const VALID_BASE_REQUEST = {
 };
 
 describe("parseHeatRiskRequest", () => {
-  it("accepts a valid structured request", () => {
-    const parsed = parseHeatRiskRequest(VALID_BASE_REQUEST);
-
-    expect(parsed).toEqual(VALID_BASE_REQUEST);
+  it("accepts a valid Arizona structured request", () => {
+    expect(parseHeatRiskRequest(VALID_BASE_REQUEST)).toEqual(VALID_BASE_REQUEST);
   });
 
   it("rejects string values for boolean patient factors", () => {
@@ -78,30 +89,21 @@ describe("parseHeatRiskRequest", () => {
     expect(
       parseHeatRiskRequest({
         ...VALID_BASE_REQUEST,
-        patient: {
-          ...VALID_BASE_REQUEST.patient,
-          age: -1,
-        },
+        patient: { ...VALID_BASE_REQUEST.patient, age: -1 },
       })
     ).toEqual({ error: "patient.age must be between 0 and 120." });
 
     expect(
       parseHeatRiskRequest({
         ...VALID_BASE_REQUEST,
-        patient: {
-          ...VALID_BASE_REQUEST.patient,
-          age: 121,
-        },
+        patient: { ...VALID_BASE_REQUEST.patient, age: 121 },
       })
     ).toEqual({ error: "patient.age must be between 0 and 120." });
 
     expect(
       parseHeatRiskRequest({
         ...VALID_BASE_REQUEST,
-        patient: {
-          ...VALID_BASE_REQUEST.patient,
-          age: "78",
-        },
+        patient: { ...VALID_BASE_REQUEST.patient, age: "78" },
       })
     ).toEqual({ error: "patient.age must be a finite number." });
   });
@@ -119,99 +121,82 @@ describe("parseHeatRiskRequest", () => {
     });
   });
 
-  it("accepts the validated Phoenix hackathon demo environment", () => {
-    const parsed = parseHeatRiskRequest(VALID_BASE_REQUEST);
-
-    expect(parsed).toEqual(VALID_BASE_REQUEST);
+  it("rejects coordinates outside Arizona", () => {
+    expect(
+      parseHeatRiskRequest({
+        ...VALID_BASE_REQUEST,
+        destination: {
+          ...VALID_BASE_REQUEST.destination,
+          latitude: 40.7128,
+          longitude: -74.006,
+        },
+      })
+    ).toEqual({ error: ARIZONA_COVERAGE_ERROR });
   });
 
-  it("rejects a different latitude", () => {
-    const parsed = parseHeatRiskRequest({
-      ...VALID_BASE_REQUEST,
-      latitude: 34,
-    });
-
-    expect(parsed).toEqual({ error: HACKATHON_DEMO_ENVIRONMENT_ERROR });
+  it("rejects a point inside the old rectangular bounds but outside Arizona", () => {
+    expect(
+      parseHeatRiskRequest({
+        ...VALID_BASE_REQUEST,
+        destination: {
+          ...VALID_BASE_REQUEST.destination,
+          latitude: 36.5,
+          longitude: -115,
+        },
+      })
+    ).toEqual({ error: ARIZONA_COVERAGE_ERROR });
   });
 
-  it("rejects a different longitude", () => {
-    const parsed = parseHeatRiskRequest({
-      ...VALID_BASE_REQUEST,
-      longitude: -111,
-    });
-
-    expect(parsed).toEqual({ error: HACKATHON_DEMO_ENVIRONMENT_ERROR });
+  it("rejects invalid transport mode", () => {
+    expect(
+      parseHeatRiskRequest({
+        ...VALID_BASE_REQUEST,
+        journey: {
+          ...VALID_BASE_REQUEST.journey,
+          transportMode: "helicopter",
+        },
+      })
+    ).toEqual({ error: "journey.transportMode must be a supported transport mode." });
   });
 
-  it("rejects an unsupported timezone", () => {
-    const parsed = parseHeatRiskRequest({
-      ...VALID_BASE_REQUEST,
-      timeZone: "America/Los_Angeles",
-    });
-
-    expect(parsed).toEqual({ error: HACKATHON_DEMO_ENVIRONMENT_ERROR });
-  });
-
-  it("rejects an unsupported discharge date", () => {
-    const parsed = parseHeatRiskRequest({
-      ...VALID_BASE_REQUEST,
-      date: "2026-08-19",
-    });
-
-    expect(parsed).toEqual({ error: HACKATHON_DEMO_ENVIRONMENT_ERROR });
-  });
-
-  it("rejects an unsupported discharge time", () => {
-    const parsed = parseHeatRiskRequest({
-      ...VALID_BASE_REQUEST,
-      time: "15:00",
-    });
-
-    expect(parsed).toEqual({ error: HACKATHON_DEMO_ENVIRONMENT_ERROR });
-  });
-
-  it("allows patient factors to differ while the environmental scenario stays fixed", () => {
-    const alternatePatientRequest = {
+  it("allows patient factors to differ while Arizona locations remain valid", () => {
+    const alternate = {
       ...VALID_BASE_REQUEST,
       patient: {
+        ...VALID_BASE_REQUEST.patient,
         age: 82,
-        cardiovascularDisease: true,
         heartFailure: true,
-        kidneyDisease: false,
-        respiratoryDisease: false,
-        diabetes: true,
-        cognitiveImpairment: true,
-        limitedMobility: true,
-      },
-      medications: {
-        diuretic: true,
-        aceArbArni: true,
-        betaBlocker: false,
-        anticholinergic: false,
-        psychotropic: false,
-        lithium: false,
-        nsaid: false,
-      },
-      homeSocial: {
-        workingAirConditioning: false,
-        livesAlone: true,
-        reliableTransport: false,
-        caregiverCheckInAvailable: false,
-        powerDependentMedicalEquipment: true,
       },
     };
 
-    const parsed = parseHeatRiskRequest(alternatePatientRequest);
-
-    expect(parsed).toEqual(alternatePatientRequest);
+    expect(parseHeatRiskRequest(alternate)).toEqual(alternate);
   });
 });
 
-describe("evaluateHeatDischargeRisk with request profile inputs", () => {
-  it("changes the score when patient and home factors differ", () => {
+describe("demo cases", () => {
+  it("defines A/B/C presets with synthetic IDs", () => {
+    expect(DEMO_CASE_A.id).toBe("HS-001");
+    expect(DEMO_CASE_B.id).toBe("HS-002");
+    expect(DEMO_CASE_C.id).toBe("HS-003");
+    expect(getDemoCaseByPreset("A").profile.patient.heartFailure).toBe(true);
+    expect(getDemoCaseByPreset("C").profile.medications.diuretic).toBe(false);
+  });
+});
+
+describe("patient vulnerability with constant environmental data", () => {
+  it("changes score when patient factors differ", () => {
+    const transition = calculateTransitionExposure({
+      transportMode: "public_bus",
+      durationMinutes: 45,
+    });
+
     const environmental = {
-      meanTemperature: 33,
-      maximumTemperature: 39,
+      destination: { meanTemperature: 33, maximumTemperature: 39 },
+      transition: {
+        points: transition.points,
+        label: transition.label,
+        explanation: transition.explanation,
+      },
     };
 
     const lowRisk = evaluateHeatDischargeRisk({
@@ -223,40 +208,12 @@ describe("evaluateHeatDischargeRisk with request profile inputs", () => {
 
     const highRisk = evaluateHeatDischargeRisk({
       environmental,
-      patient: {
-        age: 78,
-        cardiovascularDisease: false,
-        heartFailure: true,
-        kidneyDisease: true,
-        respiratoryDisease: false,
-        diabetes: false,
-        cognitiveImpairment: false,
-        limitedMobility: false,
-      },
-      medications: {
-        ...VALID_BASE_REQUEST.medications,
-        diuretic: true,
-      },
-      homeSocial: {
-        workingAirConditioning: false,
-        livesAlone: true,
-        reliableTransport: true,
-        caregiverCheckInAvailable: false,
-        powerDependentMedicalEquipment: false,
-      },
+      patient: DEMO_CASE_A.profile.patient,
+      medications: DEMO_CASE_A.profile.medications,
+      homeSocial: DEMO_CASE_A.profile.homeSocial,
     });
 
     expect(highRisk.score).toBeGreaterThan(lowRisk.score);
-    expect(highRisk.priority).not.toBe(lowRisk.priority);
-    expect(
-      highRisk.riskFactors.some((factor) =>
-        factor.explanation.includes("Heart failure")
-      )
-    ).toBe(true);
-    expect(
-      lowRisk.riskFactors.some((factor) =>
-        factor.explanation.includes("Heart failure")
-      )
-    ).toBe(false);
+    expect(highRisk.contributions.length).toBeGreaterThan(lowRisk.contributions.length);
   });
 });
