@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useMemo } from "react";
 
+import { AboutWorkflowPanel } from "@/components/about-workflow-panel";
+import { EnvironmentalComparisonPanel } from "@/components/environmental-comparison-panel";
 import { PriorityBadge, SectionCard } from "@/components/ui/clinical-ui";
 import { useDischargeStorage } from "@/hooks/use-discharge-storage";
 import {
@@ -70,9 +72,10 @@ export default function DischargeDashboard() {
               HeatSafe Discharge
             </h1>
             <p className="mt-3 max-w-3xl text-base text-slate-600">
-              Heat-aware discharge coordination platform for today&apos;s
-              discharges. Synthetic demonstration environment — not clinically
-              validated.
+              Heat-aware discharge coordination for today&apos;s discharges. Identify
+              heat-sensitive transitions, assign owned actions, and track completion
+              before the patient leaves — synthetic demonstration environment, not
+              clinically validated.
             </p>
           </div>
           <div className="flex flex-col gap-2">
@@ -150,6 +153,11 @@ export default function DischargeDashboard() {
           </table>
         </div>
       </SectionCard>
+
+      <div className="mt-8 space-y-8">
+        <EnvironmentalComparisonPanel />
+        <AboutWorkflowPanel />
+      </div>
     </div>
   );
 }

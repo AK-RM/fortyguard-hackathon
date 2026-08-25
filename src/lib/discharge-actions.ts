@@ -69,6 +69,30 @@ export function updateActionStatus(
   });
 }
 
+export function formatActionTimestamp(
+  iso: string,
+  timeZone = "America/Phoenix"
+): string {
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone,
+    timeZoneName: "short",
+  }).format(new Date(iso));
+}
+
+export function updateActionNote(
+  actions: DischargeActionTask[],
+  actionId: string,
+  note: string
+): DischargeActionTask[] {
+  return actions.map((action) =>
+    action.id === actionId ? { ...action, note: note.trim() || undefined } : action
+  );
+}
+
 export function getSuggestedOwnerLabel(owner: SuggestedOwner): string {
   return owner.charAt(0).toUpperCase() + owner.slice(1);
 }

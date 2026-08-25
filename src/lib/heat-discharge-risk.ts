@@ -1,5 +1,5 @@
 /**
- * Prototype workflow-prioritization weights for HeatSafe Discharge.
+ * Deterministic workflow-prioritization weights for HeatSafe Discharge.
  *
  * These values are NOT probabilities, validated clinical thresholds, or
  * evidence-based risk scores. They exist to rank discharge-coordination

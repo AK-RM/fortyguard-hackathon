@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 
 import { JourneyMap } from "@/components/journey-map";
+import { ActionWorkflowCard } from "@/components/action-workflow-card";
+import { ClinicalBasisPanel } from "@/components/clinical-basis-panel";
 import { ScoreExplainer } from "@/components/score-explainer";
 import {
   CheckboxField,
@@ -19,10 +21,6 @@ import {
   getPhoenixDemoDateTime,
 } from "@/lib/arizona-locations";
 import {
-  ACTION_STATUS_LABELS,
-  updateActionStatus,
-} from "@/lib/discharge-actions";
-import {
   getDemoCaseByPreset,
 } from "@/lib/demo-cases";
 import {
@@ -36,6 +34,10 @@ import {
   upsertDischargeRecord,
 } from "@/lib/discharge-storage";
 import { CLINICIAN_VALIDATION } from "@/lib/clinician-validation";
+import {
+  FORTYGUARD_PRODUCT_COPY,
+  HEATSAFE_ROLE_COPY,
+} from "@/lib/clinical-methodology";
 import {
   TRANSPORT_MODE_LABELS,
   TRANSITION_EXPOSURE_ASSUMPTIONS,
@@ -771,6 +773,8 @@ export default function DischargeWorkspace({ dischargeId }: { dischargeId: strin
                 title="FortyGuard environmental intelligence"
                 description="Destination environmental data for the local hourly window containing estimated arrival. Source: FortyGuard heatmap API (Single Hour)."
               >
+                <p className="mb-3 text-sm text-slate-700">{FORTYGUARD_PRODUCT_COPY}</p>
+                <p className="mb-4 text-sm text-slate-600">{HEATSAFE_ROLE_COPY}</p>
                 {record.assessment.destinationEnvironmental ? (
                   <div className="space-y-3 text-sm">
                     {record.assessedAt ? (
@@ -928,42 +932,33 @@ export default function DischargeWorkspace({ dischargeId }: { dischargeId: strin
                 </ul>
               </SectionCard>
 
-              <SectionCard title="Assigned discharge interventions">
+              <SectionCard
+                title="Assigned discharge interventions"
+                description="Track owned actions from assignment through completion. Status, notes, and timestamps persist locally for this discharge."
+              >
+                <div className="mb-3 flex flex-wrap gap-3 text-xs font-medium">
+                  <span className="rounded-full bg-amber-100 px-2.5 py-1 text-amber-900">
+                    Outstanding:{" "}
+                    {record.actions.filter((action) => action.status !== "completed").length}
+                  </span>
+                  <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-emerald-900">
+                    Completed:{" "}
+                    {record.actions.filter((action) => action.status === "completed").length}
+                  </span>
+                </div>
                 <div className="space-y-3">
                   {record.actions.map((action) => (
-                    <div
+                    <ActionWorkflowCard
                       key={action.id}
-                      className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm"
-                    >
-                      <div className="flex flex-wrap items-start justify-between gap-2">
-                        <p className="font-medium text-slate-900">{action.action}</p>
-                        <select
-                          value={action.status}
-                          onChange={(event) =>
-                            updateActions(
-                              updateActionStatus(
-                                record.actions,
-                                action.id,
-                                event.target.value as typeof action.status
-                              )
-                            )
-                          }
-                          className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs"
-                        >
-                          {Object.entries(ACTION_STATUS_LABELS).map(([value, label]) => (
-                            <option key={value} value={value}>
-                              {label}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <p className="mt-2 text-slate-600">
-                        Owner: {action.suggestedOwner}
-                      </p>
-                    </div>
+                      action={action}
+                      allActions={record.actions}
+                      onUpdate={updateActions}
+                    />
                   ))}
                 </div>
               </SectionCard>
+
+              <ClinicalBasisPanel />
             </>
           ) : null}
 
@@ -971,7 +966,7 @@ export default function DischargeWorkspace({ dischargeId }: { dischargeId: strin
             <p className="text-sm text-slate-600">{CLINICIAN_VALIDATION.summary}</p>
             {CLINICIAN_VALIDATION.status === "evaluation_in_progress" ? (
               <p className="mt-3 text-sm font-medium text-slate-800">
-                Evaluation in progress
+                {CLINICIAN_VALIDATION.emptyStateLabel}
               </p>
             ) : (
               <dl className="mt-3 grid gap-2 text-sm text-slate-700 sm:grid-cols-2">

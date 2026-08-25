@@ -110,7 +110,7 @@ HeatSafe decouples environmental data acquisition from clinician-facing review. 
 - **Refresh from FortyGuard:** Explicitly bypasses cache for the same query while keeping the current verified result visible until a new live result completes.
 - **Stale input safety:** Fingerprint changes invalidate pending activities so old FortyGuard results cannot finalize the wrong patient/input set. Completed environmental data may still enter the cache for its exact query.
 
-Standardized demo cases **A/B/C** intentionally share one **verified historical FortyGuard result** for Central Phoenix (2026-08-18 14:00–15:00 local) so environmental exposure is controlled while patient vulnerability profiles remain distinct. Arbitrary Arizona coordinates are **not** hardcoded and use the live async path.
+Standardized demo cases **A/B/C** intentionally share one **verified historical FortyGuard result** for Central Phoenix (2026-08-18 14:00–15:00 local) so environmental exposure is controlled while patient vulnerability profiles remain distinct. A separate **Compare environmental exposure** panel on the dashboard holds an existing demo patient constant (automatically **HS-003 / Case C** when it produces the strongest legitimate workflow delta) and contrasts two verified FortyGuard snapshots for the same destination at different arrival-hour windows (14:00 vs 06:00 local). Arbitrary Arizona coordinates are **not** hardcoded and use the live async path.
 
 Cached verified data is never described as live. Numerical HeatSafe weights remain heuristic and are **not clinically calibrated**.
 
@@ -147,11 +147,32 @@ flowchart LR
 | `src/lib/discharge-storage.ts` | Browser localStorage persistence layer |
 | `src/app/api/heat-risk/route.ts` | Assessment submit: verified cache hit or async FortyGuard job |
 | `src/lib/environmental-query.ts` | Canonical FortyGuard environmental query + cache key |
-| `src/lib/verified-environmental-seed.ts` | Verified historical Central Phoenix FortyGuard result |
+| `src/lib/verified-environmental-seed.ts` | Verified historical FortyGuard results (Central Phoenix + Tucson) |
+| `src/lib/clinical-methodology.ts` | CDC/AHRQ/WHO rationale mapping for factors and actions |
+| `src/lib/environmental-comparison.ts` | Matched-patient environmental counterfactual logic |
 | `src/lib/environmental-cache.ts` | Verified + browser cache lookup/store helpers |
 | `src/app/api/heat-risk/status/route.ts` | One-check FortyGuard status + assessment finalization |
 
 ## Scoring Methodology
+
+### Clinical rationale and evidence
+
+HeatSafe's included risk factors and action categories are informed by authoritative public-health and discharge-planning guidance:
+
+| Source | Role in HeatSafe |
+| --- | --- |
+| [CDC Clinical Guidance for Heat and Health](https://www.cdc.gov/heat-health/hcp/clinical-guidance/index.html) | Heat vulnerability factors, warning-sign education, clinician review principles |
+| [CDC Heat and Medications — Guidance for Clinicians](https://www.cdc.gov/heat-health/hcp/clinical-guidance/heat-and-medications-guidance-for-clinicians.html) | Medication **review** actions — never automatic medication changes |
+| [CDC Heat and Older Adults](https://www.cdc.gov/heat-health/risk-factors/heat-and-older-adults-aged-65.html) | Advanced age as a heat-vulnerability consideration |
+| [CDC Extreme Heat Risk Factors](https://www.cdc.gov/extreme-heat/risk-factors/index.html) | Chronic conditions and social vulnerability factors |
+| [AHRQ IDEAL Discharge Planning](https://www.ahrq.gov/patient-safety/patients-families/engagingfamilies/strategy4/index.html) | Discharge coordination, home conditions, caregiver participation, follow-up |
+| [WHO Keep Cool in the Heat](https://www.who.int/europe/news-room/fact-sheets/item/keepcool-in-the-heat) | Cooling access and protective planning context |
+
+**What guidance supports:** factor selection, action category selection, and clinician-facing rationale in the UI (`src/lib/clinical-methodology.ts`, Clinical basis & methodology panel).
+
+**What guidance does NOT support:** numerical HeatSafe coefficients, priority thresholds (25 / 50 / 75), outcome prediction, or any claim that CDC/AHRQ/WHO validate the score.
+
+HeatSafe is **not** a diagnostic or predictive model. The workflow prioritization score is a transparent heuristic for coordinating follow-up effort.
 
 ### Evidence-informed factor selection
 
@@ -176,7 +197,7 @@ The exact numerical points are **not fitted clinical coefficients**. They are de
 
 Priority thresholds (25 / 50 / 75) are **workflow tiers**, not validated outcome cutoffs.
 
-References for evidence-informed factor selection still need to be manually supplied before submission. This README does not include fabricated citations.
+Implementation mapping: `src/lib/clinical-methodology.ts`.
 
 | Category | Factor | Points |
 | --- | --- | --- |
@@ -196,7 +217,7 @@ References for evidence-informed factor selection still need to be manually supp
 
 ## Early Clinician Workflow Evaluation
 
-Structured clinician review of standardized synthetic cases is **in progress**. Metrics will be populated from actual validation sessions via `src/lib/clinician-validation.ts`:
+Structured clinician review of standardized synthetic cases is **in progress**. The workspace shows **Clinician evaluation in progress** until real aggregate metrics exist. Metrics will be populated from actual validation sessions via `src/lib/clinician-validation.ts`:
 
 | Metric | Status |
 | --- | --- |

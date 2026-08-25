@@ -11,9 +11,10 @@ export type ClinicianValidationMetrics = {
 
 export const CLINICIAN_VALIDATION = {
   status: "evaluation_in_progress" as ClinicianValidationStatus,
-  title: "Early clinician workflow evaluation",
+  title: "Clinician workflow evaluation",
   summary:
-    "Structured clinician review of standardized synthetic cases is in progress. Metrics below will be populated from actual validation sessions.",
+    "Structured clinician review of standardized synthetic cases is underway. Aggregate metrics will be populated only from completed validation sessions — no placeholder percentages are shown.",
+  emptyStateLabel: "Clinician evaluation in progress",
   metrics: {
     clinicianCount: null,
     caseReviewCount: null,

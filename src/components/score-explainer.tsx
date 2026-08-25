@@ -2,6 +2,7 @@ import {
   SCORE_EXPLAINER_DISCLAIMER,
   groupContributionsByCategory,
 } from "@/lib/heat-discharge-risk";
+import { getSourcesForContribution } from "@/lib/clinical-methodology";
 import type { ScoreContribution } from "@/lib/heat-discharge-risk";
 
 const CATEGORY_LABELS = {
@@ -48,6 +49,24 @@ export function ScoreExplainer({
                     +{contribution.points} {contribution.label}
                   </p>
                   <p className="mt-0.5 text-slate-600">{contribution.explanation}</p>
+                  {getSourcesForContribution(contribution.id).length > 0 ? (
+                    <p className="mt-1 text-xs text-slate-500">
+                      Basis:{" "}
+                      {getSourcesForContribution(contribution.id).map((source, index) => (
+                        <span key={source.id}>
+                          {index > 0 ? " · " : ""}
+                          <a
+                            href={source.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-sky-700 hover:underline"
+                          >
+                            {source.label.replace(/^CDC |^AHRQ |^WHO /, "")}
+                          </a>
+                        </span>
+                      ))}
+                    </p>
+                  ) : null}
                 </div>
               </li>
             ))}
