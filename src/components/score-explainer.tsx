@@ -27,9 +27,7 @@ export function ScoreExplainer({
   return (
     <div className="space-y-4">
       <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-        <p className="font-medium text-slate-900">
-          Why {score}? Transparent contribution breakdown
-        </p>
+        <p className="font-medium text-slate-900">Score breakdown</p>
         <p className="mt-1">{SCORE_EXPLAINER_DISCLAIMER}</p>
       </div>
 
