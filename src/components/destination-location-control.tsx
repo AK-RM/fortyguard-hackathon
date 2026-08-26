@@ -12,9 +12,8 @@ import {
   buildLocationFromGeocodeResult,
   buildLocationFromPreset,
   validateArizonaDestinationCoordinates,
-  validateLatitude,
-  validateLongitude,
 } from "@/lib/location-coordinates";
+import { parseCoordinateDraftPair } from "@/lib/numeric-form-input";
 import type { DischargeLocation } from "@/types/discharge-workflow";
 
 export type DestinationLocationMethod = "preset" | "address" | "coordinates";
@@ -135,16 +134,24 @@ export function DestinationLocationControl({
   }
 
   function handleManualCoordinatesConfirm() {
-    const latitude = Number(latitudeInput);
-    const longitude = Number(longitudeInput);
-    const validationError = validateArizonaDestinationCoordinates(latitude, longitude);
+    const parsed = parseCoordinateDraftPair(latitudeInput, longitudeInput);
+
+    if ("error" in parsed) {
+      setCoordinateError(parsed.error);
+      return;
+    }
+
+    const validationError = validateArizonaDestinationCoordinates(
+      parsed.latitude,
+      parsed.longitude
+    );
 
     if (validationError) {
       setCoordinateError(validationError);
       return;
     }
 
-    confirmDestination(buildLocationFromCoordinates(latitude, longitude));
+    confirmDestination(buildLocationFromCoordinates(parsed.latitude, parsed.longitude));
   }
 
   function handleUseGeocodeResult(candidate: GeocodeCandidate) {
@@ -228,17 +235,13 @@ export function DestinationLocationControl({
   }
 
   function validateCoordinateInputs(): string | null {
-    const latitudeError = validateLatitude(Number(latitudeInput));
-    if (latitudeError) {
-      return latitudeError;
+    const parsed = parseCoordinateDraftPair(latitudeInput, longitudeInput);
+
+    if ("error" in parsed) {
+      return parsed.error;
     }
 
-    const longitudeError = validateLongitude(Number(longitudeInput));
-    if (longitudeError) {
-      return longitudeError;
-    }
-
-    return null;
+    return validateArizonaDestinationCoordinates(parsed.latitude, parsed.longitude);
   }
 
   if (isConfirmed) {
@@ -416,7 +419,7 @@ export function DestinationLocationControl({
           <label className="block text-sm">
             <span className="mb-1 block font-medium">Latitude</span>
             <input
-              type="number"
+              type="text"
               step="any"
               inputMode="decimal"
               value={latitudeInput}
@@ -428,7 +431,7 @@ export function DestinationLocationControl({
           <label className="block text-sm">
             <span className="mb-1 block font-medium">Longitude</span>
             <input
-              type="number"
+              type="text"
               step="any"
               inputMode="decimal"
               value={longitudeInput}

@@ -323,16 +323,18 @@ export function useEnvironmentalAssessment(params: {
   }, [checkPendingStatus, record]);
 
   const submitAssessment = useCallback(
-    async (options?: { forceRefresh?: boolean }) => {
-      if (!record || !state) {
+    async (options?: { forceRefresh?: boolean; recordOverride?: DischargeRecord }) => {
+      const activeRecord = options?.recordOverride ?? record;
+
+      if (!activeRecord || !state) {
         return { ok: false as const, error: "Discharge record is unavailable." };
       }
 
       if (
         !options?.forceRefresh &&
-        record.assessmentStatus === "processing" &&
-        record.pendingAssessment &&
-        isPendingAssessmentCurrent(record)
+        activeRecord.assessmentStatus === "processing" &&
+        activeRecord.pendingAssessment &&
+        isPendingAssessmentCurrent(activeRecord)
       ) {
         return {
           ok: false as const,
@@ -343,8 +345,8 @@ export function useEnvironmentalAssessment(params: {
 
       if (
         options?.forceRefresh &&
-        record.environmentalRefresh?.status === "processing" &&
-        isEnvironmentalRefreshCurrent(record)
+        activeRecord.environmentalRefresh?.status === "processing" &&
+        isEnvironmentalRefreshCurrent(activeRecord)
       ) {
         return {
           ok: false as const,
@@ -354,7 +356,7 @@ export function useEnvironmentalAssessment(params: {
       }
 
       const request = {
-        ...buildRequest(record),
+        ...buildRequest(activeRecord),
         clientEnvironmentalCache: state.environmentalCache,
         ...(options?.forceRefresh ? { forceRefresh: true } : {}),
       };
@@ -379,16 +381,16 @@ export function useEnvironmentalAssessment(params: {
         }
 
         if (isProcessingResponse(data)) {
-          if (data.inputFingerprint !== computeAssessmentInputFingerprint(record)) {
+          if (data.inputFingerprint !== computeAssessmentInputFingerprint(activeRecord)) {
             return {
               ok: false as const,
               error: "Assessment inputs changed before FortyGuard submission completed.",
             };
           }
 
-          if (data.isRefresh && isAssessmentCurrent(record)) {
+          if (data.isRefresh && isAssessmentCurrent(activeRecord)) {
             persistRecord(
-              applyEnvironmentalRefresh(record, {
+              applyEnvironmentalRefresh(activeRecord, {
                 activityId: data.activityId,
                 environmentalQuery: data.environmentalQuery,
                 inputFingerprint: data.inputFingerprint,
@@ -397,7 +399,7 @@ export function useEnvironmentalAssessment(params: {
             );
           } else {
             persistRecord(
-              applyProcessingAssessment(record, {
+              applyProcessingAssessment(activeRecord, {
                 activityId: data.activityId,
                 environmentalQuery: data.environmentalQuery,
                 inputFingerprint: data.inputFingerprint,
@@ -410,8 +412,8 @@ export function useEnvironmentalAssessment(params: {
         }
 
         if (isCompletedResponse(data)) {
-          finalizeAssessment(record, data, {
-            isRefresh: options?.forceRefresh === true && isAssessmentCurrent(record),
+          finalizeAssessment(activeRecord, data, {
+            isRefresh: options?.forceRefresh === true && isAssessmentCurrent(activeRecord),
           });
           return { ok: true as const, mode: "completed" as const };
         }

@@ -7,6 +7,10 @@ import { AssessmentSummaryPanel } from "@/components/assessment-summary-panel";
 import { PreparedCaseSummary } from "@/components/prepared-case-summary";
 import { DestinationLocationControl } from "@/components/destination-location-control";
 import { JourneySummary } from "@/components/journey-summary";
+import {
+  NumericFieldInput,
+  resolveNumericDraft,
+} from "@/components/numeric-field-input";
 import { ActionWorkflowCard } from "@/components/action-workflow-card";
 import { ClinicalBasisPanel } from "@/components/clinical-basis-panel";
 import { EnvironmentalExposurePanel } from "@/components/environmental-exposure-panel";
@@ -42,6 +46,11 @@ import {
   buildLocationFromPreset,
   validateDestinationForAssessment,
 } from "@/lib/location-coordinates";
+import {
+  parseNumericDraft,
+  validateAgeInput,
+  validateDurationInput,
+} from "@/lib/numeric-form-input";
 import {
   TRANSPORT_MODE_LABELS,
   TRANSITION_EXPOSURE_ASSUMPTIONS,
@@ -89,6 +98,9 @@ export default function DischargeWorkspace({ dischargeId }: { dischargeId: strin
   const [error, setError] = useState<string | null>(null);
   const [showEditDetails, setShowEditDetails] = useState(false);
   const [showProcessingDetails, setShowProcessingDetails] = useState(false);
+  const [ageDraft, setAgeDraft] = useState<string | undefined>(undefined);
+  const [durationDraft, setDurationDraft] = useState<string | undefined>(undefined);
+  const [numericFieldSeed, setNumericFieldSeed] = useState(0);
 
   const record = state?.discharges[dischargeId] ?? null;
   const isDemoCase = record ? isStandardizedDemoCase(record) : false;
@@ -150,11 +162,52 @@ export default function DischargeWorkspace({ dischargeId }: { dischargeId: strin
       return;
     }
 
-    persistRecord(applyDemoCaseToRecord(record, preset));
+    const next = applyDemoCaseToRecord(record, preset);
+    persistRecord(next);
+    setAgeDraft(undefined);
+    setDurationDraft(undefined);
+    setNumericFieldSeed((seed) => seed + 1);
     setError(null);
     setShowEditDetails(false);
   }
 
+  function buildRecordWithCommittedNumericDrafts(
+    current: DischargeRecord
+  ): DischargeRecord | { error: string } {
+    const ageInput = resolveNumericDraft(ageDraft, current.profile.patient.age);
+    const durationInput = resolveNumericDraft(
+      durationDraft,
+      current.journey.durationMinutes
+    );
+    const ageError = validateAgeInput(ageInput);
+
+    if (ageError) {
+      return { error: ageError };
+    }
+
+    const durationError = validateDurationInput(durationInput);
+
+    if (durationError) {
+      return { error: durationError };
+    }
+
+    const age = Math.round(parseNumericDraft(ageInput)!);
+    const durationMinutes = Math.round(parseNumericDraft(durationInput)!);
+
+    return updateAssessmentInputs(current, {
+      profile: {
+        ...current.profile,
+        patient: {
+          ...current.profile.patient,
+          age,
+        },
+      },
+      journey: {
+        ...current.journey,
+        durationMinutes,
+      },
+    });
+  }
 
   function updateDestination(location: DischargeLocation) {
     if (!record) {
@@ -207,25 +260,46 @@ export default function DischargeWorkspace({ dischargeId }: { dischargeId: strin
     });
   }
 
+  const ageInput = record
+    ? resolveNumericDraft(ageDraft, record.profile.patient.age)
+    : "";
+  const durationInput = record
+    ? resolveNumericDraft(durationDraft, record.journey.durationMinutes)
+    : "";
   const destinationValidationError = record
     ? validateDestinationForAssessment(record.destination)
     : null;
-  const assessmentBlocked = Boolean(destinationValidationError);
+  const ageValidationError = validateAgeInput(ageInput);
+  const durationValidationError = validateDurationInput(durationInput);
+  const assessmentBlocked = Boolean(
+    destinationValidationError || ageValidationError || durationValidationError
+  );
 
   async function runAssessment(options?: { forceRefresh?: boolean }) {
     if (!record) {
       return;
     }
 
-    if (validateDestinationForAssessment(record.destination)) {
+    const committed = buildRecordWithCommittedNumericDrafts(record);
+
+    if ("error" in committed) {
+      setError(committed.error);
+      return;
+    }
+
+    if (validateDestinationForAssessment(committed.destination)) {
       setError("Choose a valid Arizona destination before running HeatSafe.");
       return;
     }
 
+    persistRecord(committed);
     setLoading(true);
     setError(null);
 
-    const result = await submitAssessment(options);
+    const result = await submitAssessment({
+      ...options,
+      recordOverride: committed,
+    });
 
     if (!result.ok) {
       setError(result.error);
@@ -569,56 +643,68 @@ export default function DischargeWorkspace({ dischargeId }: { dischargeId: strin
                   ))}
                 </select>
               </label>
-              <label className="text-sm">
-                <span className="mb-1 block font-medium">Duration (minutes)</span>
-                <input
-                  type="number"
-                  min={1}
-                  max={480}
-                  value={record.journey.durationMinutes}
-                  onChange={(event) =>
-                    updateInputs({
-                      journey: {
-                        ...record.journey,
-                        durationMinutes: Number(event.target.value),
-                      },
-                    })
+              <NumericFieldInput
+                key={`duration-${dischargeId}-${numericFieldSeed}`}
+                id={`duration-${dischargeId}`}
+                label="Duration (minutes)"
+                value={durationInput}
+                onChange={setDurationDraft}
+                validate={validateDurationInput}
+                onCommit={(durationMinutes) => {
+                  if (!record || durationMinutes === record.journey.durationMinutes) {
+                    return;
                   }
-                  className="w-full rounded-md border border-slate-300 px-3 py-2"
-                />
-              </label>
+
+                  updateInputs({
+                    journey: {
+                      ...record.journey,
+                      durationMinutes,
+                    },
+                  });
+                }}
+                min={1}
+                max={480}
+              />
             </div>
 
             <JourneySummary
               origin={record.origin}
               destination={record.destination}
               transportMode={record.journey.transportMode}
-              durationMinutes={record.journey.durationMinutes}
+              durationMinutes={
+                parseNumericDraft(durationInput) ?? record.journey.durationMinutes
+              }
             />
           </SectionCard>
 
           <SectionCard title="Patient">
-            <label className="mb-4 block text-sm">
-              <span className="mb-1 block font-medium">Age</span>
-              <input
-                type="number"
-                min={0}
-                max={120}
-                value={record.profile.patient.age}
-                onChange={(event) =>
-                  updateInputs({
-                    profile: {
-                      ...record.profile,
-                      patient: {
-                        ...record.profile.patient,
-                        age: Number(event.target.value),
-                      },
-                    },
-                  })
+            <NumericFieldInput
+              key={`age-${dischargeId}-${numericFieldSeed}`}
+              id={`age-${dischargeId}`}
+              label="Age"
+              value={ageInput}
+              onChange={setAgeDraft}
+              validate={validateAgeInput}
+              onCommit={(age) => {
+                if (!record || age === record.profile.patient.age) {
+                  return;
                 }
-                className="w-full max-w-[8rem] min-h-11 rounded-md border border-slate-300 px-3 py-2"
-              />
-            </label>
+
+                updateInputs({
+                  profile: {
+                    ...record.profile,
+                    patient: {
+                      ...record.profile.patient,
+                      age,
+                    },
+                  },
+                });
+              }}
+              min={0}
+              max={120}
+              className="mb-4 block text-sm"
+              inputClassName="w-full max-w-[8rem] min-h-11 rounded-md border border-slate-300 px-3 py-2"
+            />
 
             <div className="space-y-2">
               <h3 className="text-sm font-semibold">Major conditions</h3>
