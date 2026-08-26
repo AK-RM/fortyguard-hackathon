@@ -5,7 +5,8 @@ import { useState } from "react";
 
 import { AssessmentSummaryPanel } from "@/components/assessment-summary-panel";
 import { PreparedCaseSummary } from "@/components/prepared-case-summary";
-import { JourneyMap } from "@/components/journey-map";
+import { DestinationLocationControl } from "@/components/destination-location-control";
+import { JourneySummary } from "@/components/journey-summary";
 import { ActionWorkflowCard } from "@/components/action-workflow-card";
 import { ClinicalBasisPanel } from "@/components/clinical-basis-panel";
 import { EnvironmentalExposurePanel } from "@/components/environmental-exposure-panel";
@@ -38,11 +39,15 @@ import {
 } from "@/lib/discharge-display";
 import { isStandardizedDemoCase } from "@/lib/prepared-case-display";
 import {
+  buildLocationFromPreset,
+  validateDestinationForAssessment,
+} from "@/lib/location-coordinates";
+import {
   TRANSPORT_MODE_LABELS,
   TRANSITION_EXPOSURE_ASSUMPTIONS,
 } from "@/lib/transition-exposure";
 import type { HeatRiskAssessmentRequest } from "@/types/heat-risk-api";
-import type { DischargeRecord, TransportMode } from "@/types/discharge-workflow";
+import type { DischargeRecord, DischargeLocation, TransportMode } from "@/types/discharge-workflow";
 
 const TRANSPORT_MODES = Object.keys(TRANSPORT_MODE_LABELS) as TransportMode[];
 
@@ -82,7 +87,6 @@ export default function DischargeWorkspace({ dischargeId }: { dischargeId: strin
   const { state, ready, persist } = useDischargeStorage();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showAdvancedLocation, setShowAdvancedLocation] = useState(false);
   const [showEditDetails, setShowEditDetails] = useState(false);
   const [showProcessingDetails, setShowProcessingDetails] = useState(false);
 
@@ -151,6 +155,31 @@ export default function DischargeWorkspace({ dischargeId }: { dischargeId: strin
     setShowEditDetails(false);
   }
 
+
+  function updateDestination(location: DischargeLocation) {
+    if (!record) {
+      return;
+    }
+
+    const preset = ARIZONA_LOCATION_PRESETS.find(
+      (item) =>
+        Math.abs(item.latitude - location.latitude) < 0.0001 &&
+        Math.abs(item.longitude - location.longitude) < 0.0001
+    );
+
+    updateInputs({
+      destination: location,
+      ...(preset
+        ? {
+            journey: {
+              ...record.journey,
+              timeZone: preset.timeZone,
+            },
+          }
+        : {}),
+    });
+  }
+
   function applyLocationPreset(
     target: "origin" | "destination",
     presetId: string
@@ -166,11 +195,7 @@ export default function DischargeWorkspace({ dischargeId }: { dischargeId: strin
     }
 
     updateInputs({
-      [target]: {
-        label: preset.label,
-        latitude: preset.latitude,
-        longitude: preset.longitude,
-      },
+      [target]: buildLocationFromPreset(preset),
       ...(target === "destination"
         ? {
             journey: {
@@ -182,8 +207,18 @@ export default function DischargeWorkspace({ dischargeId }: { dischargeId: strin
     });
   }
 
+  const destinationValidationError = record
+    ? validateDestinationForAssessment(record.destination)
+    : null;
+  const assessmentBlocked = Boolean(destinationValidationError);
+
   async function runAssessment(options?: { forceRefresh?: boolean }) {
     if (!record) {
+      return;
+    }
+
+    if (validateDestinationForAssessment(record.destination)) {
+      setError("Choose a valid Arizona destination before running HeatSafe.");
       return;
     }
 
@@ -327,7 +362,7 @@ export default function DischargeWorkspace({ dischargeId }: { dischargeId: strin
           <button
             type="button"
             onClick={() => runAssessment()}
-            disabled={loading || (pendingIsCurrent && !loading)}
+            disabled={loading || (pendingIsCurrent && !loading) || assessmentBlocked}
             className="inline-flex min-h-11 w-full items-center justify-center rounded-md bg-sky-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-sky-800 disabled:opacity-60 sm:w-auto"
           >
             {loading
@@ -371,6 +406,12 @@ export default function DischargeWorkspace({ dischargeId }: { dischargeId: strin
             </button>
           ) : null}
         </div>
+
+        {destinationValidationError ? (
+          <p className="mt-3 text-sm text-red-700" role="alert">
+            Choose a valid Arizona destination before running HeatSafe.
+          </p>
+        ) : null}
 
         {loading ? (
           <p className="mt-3 text-sm text-slate-600">Submitting assessment…</p>
@@ -442,142 +483,38 @@ export default function DischargeWorkspace({ dischargeId }: { dischargeId: strin
             </summary>
             <div className="space-y-6 border-t border-slate-100 px-5 pb-5 pt-4">
           <SectionCard title="Discharge">
-            <div className="grid gap-4 lg:grid-cols-2">
+            <div className="grid gap-6 lg:grid-cols-2">
               <div className="space-y-3">
                 <h3 className="text-sm font-semibold text-slate-900">Leaving from</h3>
-                <input
-                  value={record.origin.label}
-                  onChange={(event) =>
-                    updateInputs({
-                      origin: { ...record.origin, label: event.target.value },
-                    })
-                  }
-                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-                />
-                <select
-                  onChange={(event) => applyLocationPreset("origin", event.target.value)}
-                  defaultValue=""
-                  className="w-full min-h-11 rounded-md border border-slate-300 px-3 py-2 text-sm"
-                >
-                  <option value="" disabled>
-                    Arizona location preset
-                  </option>
-                  {ARIZONA_LOCATION_PRESETS.map((preset) => (
-                    <option key={`origin-${preset.id}`} value={preset.id}>
-                      {preset.label}
+                <label className="block text-sm">
+                  <span className="mb-1 block font-medium">Hospital location</span>
+                  <select
+                    onChange={(event) => applyLocationPreset("origin", event.target.value)}
+                    defaultValue=""
+                    className="w-full min-h-11 rounded-md border border-slate-300 bg-white px-3 py-2"
+                  >
+                    <option value="" disabled>
+                      Choose hospital
                     </option>
-                  ))}
-                </select>
+                    {ARIZONA_LOCATION_PRESETS.map((preset) => (
+                      <option key={`origin-${preset.id}`} value={preset.id}>
+                        {preset.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm">
+                  <p className="font-medium text-slate-900">{record.origin.label}</p>
+                </div>
               </div>
 
-              <div className="space-y-3">
-                <h3 className="text-sm font-semibold text-slate-900">Destination</h3>
-                <input
-                  value={record.destination.label}
-                  onChange={(event) =>
-                    updateInputs({
-                      destination: {
-                        ...record.destination,
-                        label: event.target.value,
-                      },
-                    })
-                  }
-                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-                />
-                <select
-                  onChange={(event) =>
-                    applyLocationPreset("destination", event.target.value)
-                  }
-                  defaultValue=""
-                  className="w-full min-h-11 rounded-md border border-slate-300 px-3 py-2 text-sm"
-                >
-                  <option value="" disabled>
-                    Arizona location preset
-                  </option>
-                  {ARIZONA_LOCATION_PRESETS.map((preset) => (
-                    <option key={`destination-${preset.id}`} value={preset.id}>
-                      {preset.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <DestinationLocationControl
+                key={`${record.destination.latitude}-${record.destination.longitude}-${record.destination.label}`}
+                destination={record.destination}
+                onChange={updateDestination}
+                showMethodSelectorFirst={!isDemoCase}
+              />
             </div>
-
-            <button
-              type="button"
-              onClick={() => setShowAdvancedLocation((current) => !current)}
-              className="mt-3 min-h-11 text-sm font-medium text-sky-700 hover:text-sky-800"
-            >
-              {showAdvancedLocation ? "Hide coordinates" : "Edit coordinates"}
-            </button>
-            {showAdvancedLocation ? (
-              <div className="mt-3 grid gap-4 sm:grid-cols-2">
-                <div className="grid grid-cols-2 gap-2">
-                  <input
-                    type="number"
-                    step="any"
-                    value={record.origin.latitude}
-                    onChange={(event) =>
-                      updateInputs({
-                        origin: {
-                          ...record.origin,
-                          latitude: Number(event.target.value),
-                        },
-                      })
-                    }
-                    className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-                    placeholder="Origin lat"
-                  />
-                  <input
-                    type="number"
-                    step="any"
-                    value={record.origin.longitude}
-                    onChange={(event) =>
-                      updateInputs({
-                        origin: {
-                          ...record.origin,
-                          longitude: Number(event.target.value),
-                        },
-                      })
-                    }
-                    className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-                    placeholder="Origin lng"
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <input
-                    type="number"
-                    step="any"
-                    value={record.destination.latitude}
-                    onChange={(event) =>
-                      updateInputs({
-                        destination: {
-                          ...record.destination,
-                          latitude: Number(event.target.value),
-                        },
-                      })
-                    }
-                    className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-                    placeholder="Dest lat"
-                  />
-                  <input
-                    type="number"
-                    step="any"
-                    value={record.destination.longitude}
-                    onChange={(event) =>
-                      updateInputs({
-                        destination: {
-                          ...record.destination,
-                          longitude: Number(event.target.value),
-                        },
-                      })
-                    }
-                    className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-                    placeholder="Dest lng"
-                  />
-                </div>
-              </div>
-            ) : null}
 
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <label className="text-sm">
@@ -652,9 +589,12 @@ export default function DischargeWorkspace({ dischargeId }: { dischargeId: strin
               </label>
             </div>
 
-            <div className="mt-4">
-              <JourneyMap origin={record.origin} destination={record.destination} />
-            </div>
+            <JourneySummary
+              origin={record.origin}
+              destination={record.destination}
+              transportMode={record.journey.transportMode}
+              durationMinutes={record.journey.durationMinutes}
+            />
           </SectionCard>
 
           <SectionCard title="Patient">
