@@ -2,7 +2,6 @@
 
 import {
   PRIORITY_STYLES,
-  PriorityBadge,
 } from "@/components/ui/clinical-ui";
 import {
   getOutstandingActionCount,
@@ -13,6 +12,19 @@ import type { DischargeRecord } from "@/types/discharge-workflow";
 type AssessmentSummaryPanelProps = {
   record: DischargeRecord;
 };
+
+function getPriorityGuidance(priority: string): string {
+  switch (priority) {
+    case "urgent":
+      return "Coordinate discharge-support review before the patient leaves.";
+    case "high":
+      return "Prioritize discharge-support coordination today.";
+    case "enhanced":
+      return "Review heat-sensitive discharge steps before departure.";
+    default:
+      return "Standard heat-aware discharge review.";
+  }
+}
 
 export function AssessmentSummaryPanel({ record }: AssessmentSummaryPanelProps) {
   const assessment = record.assessment;
@@ -30,24 +42,15 @@ export function AssessmentSummaryPanel({ record }: AssessmentSummaryPanelProps) 
       className={`rounded-xl border bg-white p-5 shadow-sm ring-2 sm:p-6 ${priorityStyle.ring}`}
       aria-label="Assessment summary"
     >
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <p className={`text-sm font-semibold uppercase tracking-wide ${priorityStyle.text}`}>
-            {priorityStyle.label}
-          </p>
-          <p className="mt-1 text-4xl font-bold text-slate-900 sm:text-5xl">
-            {assessment.totalRiskScore}
-            <span className="ml-1 text-lg font-medium text-slate-500">/ 100</span>
-          </p>
-          <p className="mt-1 text-xs text-slate-500">
-            Workflow score · not clinically validated
-          </p>
-        </div>
-        <PriorityBadge priority={assessment.riskLevel} />
-      </div>
+      <p className={`text-3xl font-bold uppercase tracking-wide sm:text-4xl ${priorityStyle.text}`}>
+        {priorityStyle.label}
+      </p>
+      <p className="mt-2 text-base text-slate-800 sm:text-lg">
+        {getPriorityGuidance(assessment.riskLevel)}
+      </p>
 
       {reasons.length > 0 ? (
-        <div className="mt-4">
+        <div className="mt-5">
           <p className="text-sm font-semibold text-slate-900">Why this patient was flagged</p>
           <ul className="mt-2 space-y-1.5 text-sm text-slate-700">
             {reasons.map((reason) => (
@@ -62,28 +65,24 @@ export function AssessmentSummaryPanel({ record }: AssessmentSummaryPanelProps) 
         </div>
       ) : null}
 
-      <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
-        <p className="text-sm font-medium text-slate-900">
-          {outstanding === 0
-            ? "All assigned actions completed"
-            : `${outstanding} action${outstanding === 1 ? "" : "s"} need attention`}
-        </p>
-        {outstanding > 0 ? (
-          <a
-            href="#discharge-actions"
-            className="inline-flex min-h-11 w-full items-center justify-center rounded-md bg-sky-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-sky-800 sm:w-auto"
-          >
-            View actions
-          </a>
-        ) : null}
-      </div>
+      <p className="mt-5 text-sm font-semibold text-slate-900">
+        {outstanding === 0
+          ? "All assigned actions completed"
+          : `${outstanding} action${outstanding === 1 ? "" : "s"} need attention`}
+      </p>
 
-      {assessment.riskLevel === "urgent" ? (
-        <p className="mt-4 text-sm text-red-900">
-          Coordinate immediate discharge-support review. Workflow prioritization only — not
-          a clinical outcome prediction.
-        </p>
+      {outstanding > 0 ? (
+        <a
+          href="#discharge-actions"
+          className="mt-3 inline-flex min-h-11 w-full items-center justify-center rounded-md bg-sky-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-sky-800 sm:w-auto"
+        >
+          View actions
+        </a>
       ) : null}
+
+      <p className="mt-5 text-sm text-slate-500">
+        Supporting score: {assessment.totalRiskScore}/100 · experimental
+      </p>
     </section>
   );
 }

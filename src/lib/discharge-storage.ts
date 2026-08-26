@@ -12,6 +12,7 @@ import {
 import { isEnvironmentalRefreshCurrent } from "@/lib/discharge-record-state";
 import type { HeatDischargePriority } from "@/lib/heat-discharge-risk";
 import { countOutstandingActions } from "@/lib/discharge-actions";
+import { dedupeFlagReasons } from "@/lib/discharge-display";
 import { formatLocalDateTimeDisplay } from "@/lib/discharge-timezone";
 import { TRANSPORT_MODE_LABELS } from "@/lib/transition-exposure";
 import type { DischargeDashboardSummary } from "@/types/discharge-workflow";
@@ -84,11 +85,13 @@ export function summarizeDischargeRecord(record: DischargeRecord): DischargeDash
     record.assessmentStatus === "assessed" && record.assessment !== null;
   const priority = hasCurrentAssessment ? record.assessment?.riskLevel ?? null : null;
   const keyReasons = hasCurrentAssessment
-    ? record.assessment?.scoreContributions
-        .slice()
-        .sort((left, right) => right.points - left.points)
-        .slice(0, 2)
-        .map((contribution) => contribution.label) ?? []
+    ? dedupeFlagReasons(
+        record.assessment?.scoreContributions
+          .slice()
+          .sort((left, right) => right.points - left.points)
+          .slice(0, 3)
+          .map((contribution) => contribution.label) ?? []
+      ).slice(0, 2)
     : [];
 
   const environmentalRefreshStatus = isEnvironmentalRefreshCurrent(record)
@@ -244,6 +247,10 @@ export function createBlankDischargeRecord(id: string): DischargeRecord {
     createdAt: timestamp,
     updatedAt: timestamp,
   };
+}
+
+export function resetBuiltinDemoState(): PersistedDischargeState {
+  return createInitialPersistedState();
 }
 
 export function generateDischargeId(existing: Record<string, DischargeRecord>): string {

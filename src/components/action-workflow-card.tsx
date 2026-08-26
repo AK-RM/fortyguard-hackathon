@@ -10,44 +10,52 @@ import {
   updateActionStatus,
 } from "@/lib/discharge-actions";
 import {
-  getActionDisplayTitle,
-  getActionWhyPreview,
-} from "@/lib/discharge-display";
+  buildActionTriggerContextFromRecord,
+  getActionTriggeredBy,
+} from "@/lib/action-triggers";
+import { getActionDisplayTitle } from "@/lib/discharge-display";
 import { getSourcesForAction } from "@/lib/clinical-methodology";
-import type { DischargeActionTask } from "@/types/discharge-workflow";
+import type { DischargeActionTask, DischargeRecord } from "@/types/discharge-workflow";
 
 type ActionWorkflowCardProps = {
   action: DischargeActionTask;
+  record: DischargeRecord;
   allActions: DischargeActionTask[];
   onUpdate: (actions: DischargeActionTask[]) => void;
 };
 
 export function ActionWorkflowCard({
   action,
+  record,
   allActions,
   onUpdate,
 }: ActionWorkflowCardProps) {
-  const [showDetails, setShowDetails] = useState(false);
+  const [showDetails, setShowDetails] = useState(Boolean(action.note?.trim()));
   const title = getActionDisplayTitle(action.id, "Discharge action");
-  const why = getActionWhyPreview(action.action);
+  const triggerContext = buildActionTriggerContextFromRecord(record);
+  const triggeredBy = getActionTriggeredBy(action.id, triggerContext);
   const sources = getSourcesForAction(action.id);
   const isOutstanding = action.status !== "completed";
 
   return (
     <div
-      className={`rounded-lg border p-4 text-sm ${
+      className={`rounded-lg border p-3 text-sm sm:p-4 ${
         isOutstanding
           ? "border-amber-200 bg-amber-50/50"
           : "border-emerald-200 bg-emerald-50/40"
       }`}
     >
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 flex-1">
           <p className="text-base font-semibold text-slate-900">{title}</p>
-          <p className="mt-2 text-slate-700">{action.action}</p>
+          <p className="mt-1 text-sm text-slate-700">{action.action}</p>
           <p className="mt-2 text-sm text-slate-600">
-            <span className="font-medium text-slate-800">Why: </span>
-            {why}
+            <span className="font-medium text-slate-800">Triggered by: </span>
+            {triggeredBy}
+          </p>
+          <p className="mt-1 text-sm text-slate-600">
+            <span className="font-medium text-slate-800">Owner: </span>
+            {getSuggestedOwnerLabel(action.suggestedOwner)}
           </p>
         </div>
         <select
@@ -61,7 +69,7 @@ export function ActionWorkflowCard({
               )
             )
           }
-          className="min-h-11 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium sm:w-auto sm:min-w-[9rem]"
+          className="min-h-11 w-full shrink-0 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium sm:w-auto sm:min-w-[9rem]"
           aria-label={`Status for ${title}`}
         >
           {Object.entries(ACTION_STATUS_LABELS).map(([value, label]) => (
@@ -72,24 +80,23 @@ export function ActionWorkflowCard({
         </select>
       </div>
 
-      <dl className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-700">
-        <div>
-          <dt className="inline font-medium">Owner: </dt>
-          <dd className="inline">{getSuggestedOwnerLabel(action.suggestedOwner)}</dd>
-        </div>
-        <div>
-          <dt className="inline font-medium">Status: </dt>
-          <dd className="inline">{ACTION_STATUS_LABELS[action.status]}</dd>
-        </div>
-      </dl>
-
-      <button
-        type="button"
-        onClick={() => setShowDetails((current) => !current)}
-        className="mt-3 min-h-11 text-sm font-medium text-sky-700 hover:text-sky-800"
-      >
-        {showDetails ? "Hide notes" : "Add note"}
-      </button>
+      {sources.length > 0 || action.completedAt || action.escalatedAt ? (
+        <button
+          type="button"
+          onClick={() => setShowDetails((current) => !current)}
+          className="mt-2 min-h-11 text-sm font-medium text-sky-700 hover:text-sky-800"
+        >
+          {showDetails ? "Hide details" : "Details"}
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setShowDetails((current) => !current)}
+          className="mt-2 min-h-11 text-sm font-medium text-sky-700 hover:text-sky-800"
+        >
+          {showDetails ? "Hide note" : "Add note"}
+        </button>
+      )}
 
       {showDetails ? (
         <div className="mt-2 space-y-2">

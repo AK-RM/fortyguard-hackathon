@@ -59,13 +59,53 @@ export function getTopFlagReasons(
 
 function simplifyReasonLabel(label: string): string {
   return label
-    .replace(/^High mean destination heat$/i, "Extreme destination heat")
-    .replace(/^High peak destination heat$/i, "Extreme peak destination heat")
+    .replace(/^High mean destination heat$/i, "High destination heat")
+    .replace(/^High peak destination heat$/i, "High destination heat")
     .replace(/^Moderate mean destination heat$/i, "Elevated destination heat")
-    .replace(/^Moderate peak destination heat$/i, "Elevated peak destination heat")
+    .replace(/^Moderate peak destination heat$/i, "Elevated destination heat")
     .replace(/^No working AC$/i, "No functioning AC")
     .replace(/^Age ≥75$/i, "Age 75+")
     .replace(/^Age 65–74$/i, "Age 65–74");
+}
+
+export function dedupeFlagReasons(reasons: string[]): string[] {
+  const normalized = reasons.map((reason) => simplifyReasonLabel(reason));
+  const unique: string[] = [];
+
+  for (const reason of normalized) {
+    if (!unique.includes(reason)) {
+      unique.push(reason);
+    }
+  }
+
+  return unique;
+}
+
+export function getDashboardDifferentiators(record: DischargeRecord, limit = 3): string[] {
+  const { patient, medications, homeSocial } = record.profile;
+  const items: string[] = [];
+
+  if (patient.heartFailure) items.push("HF");
+  if (patient.kidneyDisease) items.push("CKD");
+  if (medications.diuretic) items.push("Diuretic");
+  if (!homeSocial.workingAirConditioning) items.push("No AC");
+  if (homeSocial.livesAlone) items.push("Lives alone");
+  if (patient.age >= 75) items.push("Age 75+");
+
+  return items.slice(0, limit);
+}
+
+export function formatShortArrivalDisplay(
+  date: string,
+  time: string,
+  timeZone: string
+): string {
+  const [hours, minutes] = time.split(":");
+  const hour = Number(hours);
+  const suffix = hour >= 12 ? "PM" : "AM";
+  const hour12 = hour % 12 || 12;
+
+  return `${date} · ${hour12}:${minutes} ${suffix}`;
 }
 
 export function getOutstandingActionCount(record: DischargeRecord): number {

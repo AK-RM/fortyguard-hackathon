@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 
 import { AssessmentSummaryPanel } from "@/components/assessment-summary-panel";
+import { PreparedCaseSummary } from "@/components/prepared-case-summary";
 import { JourneyMap } from "@/components/journey-map";
 import { ActionWorkflowCard } from "@/components/action-workflow-card";
 import { ClinicalBasisPanel } from "@/components/clinical-basis-panel";
@@ -31,11 +32,11 @@ import {
 import {
   upsertDischargeRecord,
 } from "@/lib/discharge-storage";
-import { CLINICIAN_VALIDATION } from "@/lib/clinician-validation";
 import {
   buildPatientSummaryLine,
   getCaseHeaderLabel,
 } from "@/lib/discharge-display";
+import { isStandardizedDemoCase } from "@/lib/prepared-case-display";
 import {
   TRANSPORT_MODE_LABELS,
   TRANSITION_EXPOSURE_ASSUMPTIONS,
@@ -82,8 +83,11 @@ export default function DischargeWorkspace({ dischargeId }: { dischargeId: strin
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showAdvancedLocation, setShowAdvancedLocation] = useState(false);
+  const [showEditDetails, setShowEditDetails] = useState(false);
+  const [showProcessingDetails, setShowProcessingDetails] = useState(false);
 
   const record = state?.discharges[dischargeId] ?? null;
+  const isDemoCase = record ? isStandardizedDemoCase(record) : false;
 
   const caseHeaderLabel = record ? getCaseHeaderLabel(record) : null;
   const patientSummaryLine = record ? buildPatientSummaryLine(record) : "";
@@ -144,6 +148,7 @@ export default function DischargeWorkspace({ dischargeId }: { dischargeId: strin
 
     persistRecord(applyDemoCaseToRecord(record, preset));
     setError(null);
+    setShowEditDetails(false);
   }
 
   function applyLocationPreset(
@@ -216,7 +221,7 @@ export default function DischargeWorkspace({ dischargeId }: { dischargeId: strin
   }
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8">
+    <div className="mx-auto max-w-3xl overflow-x-hidden px-4 py-6 sm:px-6 sm:py-8">
       <header className="mb-6 border-b border-slate-200 pb-5">
         <Link href="/" className="text-sm font-medium text-sky-700 hover:text-sky-800">
           ← Today&apos;s discharges
@@ -229,10 +234,9 @@ export default function DischargeWorkspace({ dischargeId }: { dischargeId: strin
                 {caseHeaderLabel}
               </p>
             ) : null}
-            <p className="mt-2 text-sm text-slate-700">{patientSummaryLine}</p>
-            <p className="mt-1 text-sm text-slate-600">
-              {record.destination.label} · {record.journey.date} {record.journey.time}
-            </p>
+            {!isDemoCase || hasCurrentResult ? (
+              <p className="mt-2 text-sm text-slate-700">{patientSummaryLine}</p>
+            ) : null}
           </div>
           <details className="shrink-0 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
             <summary className="cursor-pointer font-medium text-slate-800">
@@ -254,35 +258,69 @@ export default function DischargeWorkspace({ dischargeId }: { dischargeId: strin
         </div>
       </header>
 
+      {record.assessmentStatus === "stale" ? (
+        <div className="mb-6 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+          <p className="font-semibold">Assessment needs updating</p>
+          <p className="mt-1">
+            Discharge details changed. Run assessment again to refresh priority and actions.
+          </p>
+        </div>
+      ) : null}
+
+      {record.assessment?.environmentalAvailable === false &&
+      record.assessmentStatus === "environmental_unavailable" &&
+      !loading &&
+      !pendingIsCurrent ? (
+        <div className="mb-6 rounded-xl border border-red-200 bg-red-50 p-5 text-sm text-red-900">
+          <p className="font-semibold">Environmental data unavailable</p>
+          <p className="mt-2">
+            {record.environmentalFailure ??
+              "Environmental data could not be retrieved. HeatSafe will not assign an environmental priority without verified data."}
+          </p>
+        </div>
+      ) : null}
+
       {hasCurrentResult && record.assessment ? (
-        <div className="mb-6 space-y-6">
+        <div className="space-y-6">
           <AssessmentSummaryPanel record={record} />
           <section
             id="discharge-actions"
             className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6"
           >
             <h2 className="text-lg font-bold text-slate-900">Actions</h2>
-            <p className="mt-1 text-sm text-slate-600">
-              Assign, complete, or escalate discharge follow-up.
-            </p>
             <div className="mt-4 space-y-3">
               {record.actions.map((action) => (
                 <ActionWorkflowCard
                   key={action.id}
                   action={action}
+                  record={record}
                   allActions={record.actions}
                   onUpdate={updateActions}
                 />
               ))}
             </div>
           </section>
+          <EnvironmentalExposurePanel
+            assessment={record.assessment}
+            assessedAt={record.assessedAt}
+          />
         </div>
       ) : null}
 
-      <div className="mb-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-        {!hasCurrentResult ? (
+      {!hasCurrentResult && isDemoCase && !showEditDetails ? (
+        <div className="mb-6">
+          <PreparedCaseSummary record={record} />
+        </div>
+      ) : null}
+
+      <div className="my-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+        {!hasCurrentResult && isDemoCase && !showEditDetails ? (
           <p className="mb-3 text-sm text-slate-600">
-            Review discharge details, then run assessment.
+            Review the prepared case above, then run assessment.
+          </p>
+        ) : !hasCurrentResult ? (
+          <p className="mb-3 text-sm text-slate-600">
+            Complete discharge details, then run assessment.
           </p>
         ) : null}
         <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
@@ -300,6 +338,15 @@ export default function DischargeWorkspace({ dischargeId }: { dischargeId: strin
                   ? "Update assessment"
                   : "Run HeatSafe assessment"}
           </button>
+          {isDemoCase && !showEditDetails ? (
+            <button
+              type="button"
+              onClick={() => setShowEditDetails(true)}
+              className="inline-flex min-h-11 w-full items-center justify-center rounded-md border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50 sm:w-auto"
+            >
+              Edit details
+            </button>
+          ) : null}
           {assessmentIsCurrent && record.assessment?.environmentalAvailable ? (
             <button
               type="button"
@@ -334,18 +381,36 @@ export default function DischargeWorkspace({ dischargeId }: { dischargeId: strin
             <p className="mt-1">
               You can leave and return — assessment will resume automatically.
             </p>
-            <p className="mt-2 break-all font-mono text-xs text-sky-800">
-              {record.pendingAssessment.activityId}
-            </p>
+            <button
+              type="button"
+              onClick={() => setShowProcessingDetails((current) => !current)}
+              className="mt-2 min-h-11 text-sm font-medium text-sky-800"
+            >
+              {showProcessingDetails ? "Hide processing details" : "Processing details"}
+            </button>
+            {showProcessingDetails ? (
+              <p className="mt-2 break-all font-mono text-xs text-sky-800">
+                {record.pendingAssessment.activityId}
+              </p>
+            ) : null}
           </div>
         ) : null}
         {refreshIsCurrent && record.environmentalRefresh ? (
           <div className="mt-3 rounded-md border border-sky-200 bg-sky-50 px-3 py-3 text-sm text-sky-950">
             <p className="font-medium">Refreshing environmental data…</p>
             <p className="mt-1">Current result stays visible until refresh completes.</p>
-            <p className="mt-2 break-all font-mono text-xs text-sky-800">
-              {record.environmentalRefresh.activityId}
-            </p>
+            <button
+              type="button"
+              onClick={() => setShowProcessingDetails((current) => !current)}
+              className="mt-2 min-h-11 text-sm font-medium text-sky-800"
+            >
+              {showProcessingDetails ? "Hide processing details" : "Processing details"}
+            </button>
+            {showProcessingDetails ? (
+              <p className="mt-2 break-all font-mono text-xs text-sky-800">
+                {record.environmentalRefresh.activityId}
+              </p>
+            ) : null}
           </div>
         ) : null}
         {record.reassessmentRequired ? (
@@ -366,14 +431,14 @@ export default function DischargeWorkspace({ dischargeId }: { dischargeId: strin
         ) : null}
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
+      {(showEditDetails || !isDemoCase) ? (
         <div className="space-y-6">
           <details
             className="group rounded-xl border border-slate-200 bg-white shadow-sm"
-            open={!hasCurrentResult}
+            open={!hasCurrentResult || showEditDetails}
           >
             <summary className="cursor-pointer list-none px-5 py-4 text-base font-semibold text-slate-900 marker:content-none [&::-webkit-details-marker]:hidden">
-              {hasCurrentResult ? "Review discharge details" : "Discharge details"}
+              {hasCurrentResult ? "Edit discharge details" : "Discharge details"}
             </summary>
             <div className="space-y-6 border-t border-slate-100 px-5 pb-5 pt-4">
           <SectionCard title="Discharge">
@@ -715,79 +780,46 @@ export default function DischargeWorkspace({ dischargeId }: { dischargeId: strin
             </div>
           </details>
         </div>
+      ) : null}
 
-        <aside className="space-y-6">
-          {record.assessmentStatus === "stale" ? (
-            <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
-              <p className="font-semibold">Assessment needs updating</p>
-              <p className="mt-1">
-                Discharge details changed. Run assessment again to refresh priority and
-                actions.
-              </p>
-            </div>
-          ) : null}
-
-          {record.assessment?.environmentalAvailable === false &&
-          record.assessmentStatus === "environmental_unavailable" &&
-          !loading &&
-          !pendingIsCurrent ? (
-            <div className="rounded-xl border border-red-200 bg-red-50 p-5 text-sm text-red-900">
-              <p className="font-semibold">Environmental data unavailable</p>
-              <p className="mt-2">
-                {record.environmentalFailure ??
-                  "Environmental data could not be retrieved. HeatSafe will not assign an environmental priority without verified data."}
-              </p>
-            </div>
-          ) : null}
-
-          {hasCurrentResult && record.assessment ? (
-            <>
-              <EnvironmentalExposurePanel
-                assessment={record.assessment}
-                assessedAt={record.assessedAt}
+      {hasCurrentResult && record.assessment ? (
+        <div className="mt-6 space-y-4">
+          <details className="rounded-xl border border-slate-200 bg-white shadow-sm">
+            <summary className="cursor-pointer px-5 py-4 text-sm font-semibold text-slate-900">
+              How priority was determined
+            </summary>
+            <div className="border-t border-slate-100 px-5 py-4">
+              <ScoreExplainer
+                score={record.assessment.totalRiskScore ?? 0}
+                rawScore={record.assessment.rawRiskScore ?? 0}
+                contributions={record.assessment.scoreContributions}
               />
+            </div>
+          </details>
 
-              <details className="rounded-xl border border-slate-200 bg-white shadow-sm">
-                <summary className="cursor-pointer px-5 py-4 text-sm font-semibold text-slate-900">
-                  Score breakdown
-                </summary>
-                <div className="border-t border-slate-100 px-5 py-4">
-                  <ScoreExplainer
-                    score={record.assessment.totalRiskScore ?? 0}
-                    rawScore={record.assessment.rawRiskScore ?? 0}
-                    contributions={record.assessment.scoreContributions}
-                  />
-                </div>
-              </details>
-
-              {record.assessment.transitionEnvironmental ? (
-                <details className="rounded-xl border border-slate-200 bg-white shadow-sm">
-                  <summary className="cursor-pointer px-5 py-4 text-sm font-semibold text-slate-900">
-                    Journey exposure
-                  </summary>
-                  <div className="border-t border-slate-100 px-5 py-4 text-sm text-slate-700">
-                    <p>
-                      {record.assessment.transitionEnvironmental.transportLabel} ·{" "}
-                      {record.assessment.transitionEnvironmental.durationMinutes} min · +
-                      {record.assessment.transitionEnvironmental.transitionPoints} pts
-                    </p>
-                    <p className="mt-2 text-slate-600">
-                      {record.assessment.transitionEnvironmental.transitionExplanation}
-                    </p>
-                    <p className="mt-2 text-xs text-slate-500">
-                      {record.assessment.transitionEnvironmental.transitionAssumptions}
-                    </p>
-                  </div>
-                </details>
-              ) : null}
-
-              <ClinicalBasisPanel />
-            </>
+          {record.assessment.transitionEnvironmental ? (
+            <details className="rounded-xl border border-slate-200 bg-white shadow-sm">
+              <summary className="cursor-pointer px-5 py-4 text-sm font-semibold text-slate-900">
+                Journey details
+              </summary>
+              <div className="border-t border-slate-100 px-5 py-4 text-sm text-slate-700">
+                <p>
+                  {record.assessment.transitionEnvironmental.transportLabel} ·{" "}
+                  {record.assessment.transitionEnvironmental.durationMinutes} min · +
+                  {record.assessment.transitionEnvironmental.transitionPoints} pts
+                </p>
+                <p className="mt-2 text-slate-600">
+                  {record.assessment.transitionEnvironmental.transitionExplanation}
+                </p>
+              </div>
+            </details>
           ) : null}
+
+          <ClinicalBasisPanel />
 
           <details className="rounded-xl border border-slate-200 bg-white shadow-sm">
             <summary className="cursor-pointer px-5 py-4 text-sm font-semibold text-slate-900">
-              Safety & oversight
+              Safety & limitations
             </summary>
             <dl className="space-y-2 border-t border-slate-100 px-5 py-4 text-sm text-slate-700">
               <div>
@@ -809,45 +841,14 @@ export default function DischargeWorkspace({ dischargeId }: { dischargeId: strin
                 <dt className="font-medium">Transition modifier</dt>
                 <dd>{TRANSITION_EXPOSURE_ASSUMPTIONS}</dd>
               </div>
-              <div>
-                <dt className="font-medium">PHI status</dt>
-                <dd>Synthetic patient IDs only — no names, MRNs, or addresses</dd>
-              </div>
             </dl>
           </details>
 
-          <details className="rounded-xl border border-slate-200 bg-white shadow-sm">
-            <summary className="cursor-pointer px-5 py-4 text-sm font-semibold text-slate-900">
-              {CLINICIAN_VALIDATION.title}
-            </summary>
-            <div className="border-t border-slate-100 px-5 py-4 text-sm text-slate-700">
-              <p>{CLINICIAN_VALIDATION.summary}</p>
-              {CLINICIAN_VALIDATION.status === "evaluation_in_progress" ? (
-                <p className="mt-3 font-medium text-slate-800">
-                  {CLINICIAN_VALIDATION.emptyStateLabel}
-                </p>
-              ) : (
-                <dl className="mt-3 grid gap-2 sm:grid-cols-2">
-                  <div>
-                    <dt className="font-medium">Clinicians</dt>
-                    <dd>{CLINICIAN_VALIDATION.metrics.clinicianCount ?? "—"}</dd>
-                  </div>
-                  <div>
-                    <dt className="font-medium">Case reviews</dt>
-                    <dd>{CLINICIAN_VALIDATION.metrics.caseReviewCount ?? "—"}</dd>
-                  </div>
-                </dl>
-              )}
-            </div>
-          </details>
-
-          {hasCurrentResult && record.assessment ? (
-            <p className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
-              {record.assessment.disclaimer}
-            </p>
-          ) : null}
-        </aside>
-      </div>
+          <p className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+            {record.assessment.disclaimer}
+          </p>
+        </div>
+      ) : null}
     </div>
   );
 }

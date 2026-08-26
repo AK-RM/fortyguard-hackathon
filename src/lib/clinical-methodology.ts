@@ -226,13 +226,13 @@ export const ACTION_BASIS_IDS: Record<string, ClinicalSourceId[]> = {
 
 export const ACTION_SHORT_TITLES: Record<string, string> = {
   "patient-education": "Patient heat-warning education",
-  "cooling-resource-assessment": "Cooling resource assessment",
-  "follow-up-24-48": "24–48 hour follow-up",
+  "cooling-resource-assessment": "Cooling plan",
+  "follow-up-24-48": "Follow-up",
   "medication-review": "Medication review",
   "transport-cooling-planning": "Transport & cooling contingency",
-  "transition-heat-planning": "Transition heat planning",
+  "transition-heat-planning": "Journey heat plan",
   "power-outage-contingency": "Power-outage contingency",
-  "fluid-plan-review": "Individualized fluid-plan review",
+  "fluid-plan-review": "Fluid-plan review",
 };
 
 export const FORTYGUARD_PRODUCT_COPY =
