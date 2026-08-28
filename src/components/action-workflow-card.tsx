@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
-
 import {
   ACTION_STATUS_LABELS,
+  finalizeActionNote,
   formatActionTimestamp,
   getSuggestedOwnerLabel,
+  MAX_ACTION_NOTE_LENGTH,
+  sanitizeActionNoteDraft,
   updateActionNote,
   updateActionStatus,
 } from "@/lib/discharge-actions";
@@ -16,11 +17,14 @@ import {
 import { getActionDisplayTitle } from "@/lib/discharge-display";
 import { getSourcesForAction } from "@/lib/clinical-methodology";
 import type { DischargeActionTask, DischargeRecord } from "@/types/discharge-workflow";
+import { AutoResizeTextarea } from "@/components/auto-resize-textarea";
 
 type ActionWorkflowCardProps = {
   action: DischargeActionTask;
   record: DischargeRecord;
   allActions: DischargeActionTask[];
+  expanded: boolean;
+  onExpandedChange: (expanded: boolean) => void;
   onUpdate: (actions: DischargeActionTask[]) => void;
 };
 
@@ -28,9 +32,10 @@ export function ActionWorkflowCard({
   action,
   record,
   allActions,
+  expanded,
+  onExpandedChange,
   onUpdate,
 }: ActionWorkflowCardProps) {
-  const [showDetails, setShowDetails] = useState(Boolean(action.note?.trim()));
   const title = getActionDisplayTitle(action.id, "Discharge action");
   const triggerContext = buildActionTriggerContextFromRecord(record);
   const triggeredBy = getActionTriggeredBy(action.id, triggerContext);
@@ -83,22 +88,22 @@ export function ActionWorkflowCard({
       {sources.length > 0 || action.completedAt || action.escalatedAt ? (
         <button
           type="button"
-          onClick={() => setShowDetails((current) => !current)}
+          onClick={() => onExpandedChange(!expanded)}
           className="mt-2 min-h-11 text-sm font-medium text-sky-700 hover:text-sky-800"
         >
-          {showDetails ? "Hide details" : "Details"}
+          {expanded ? "Hide details" : "Details"}
         </button>
       ) : (
         <button
           type="button"
-          onClick={() => setShowDetails((current) => !current)}
+          onClick={() => onExpandedChange(!expanded)}
           className="mt-2 min-h-11 text-sm font-medium text-sky-700 hover:text-sky-800"
         >
-          {showDetails ? "Hide note" : "Add note"}
+          {expanded ? "Hide note" : "Add note"}
         </button>
       )}
 
-      {showDetails ? (
+      {expanded ? (
         <div className="mt-2 space-y-2">
           {action.completedAt ? (
             <p className="text-xs text-slate-600">
@@ -110,17 +115,32 @@ export function ActionWorkflowCard({
               Escalated {formatActionTimestamp(action.escalatedAt)}
             </p>
           ) : null}
-          <label className="block">
-            <span className="sr-only">Coordinator note for {title}</span>
-            <textarea
+          <label className="block space-y-1">
+            <span className="text-sm font-medium text-slate-800">Notes</span>
+            <AutoResizeTextarea
               value={action.note ?? ""}
               onChange={(event) =>
-                onUpdate(updateActionNote(allActions, action.id, event.target.value))
+                onUpdate(
+                  updateActionNote(
+                    allActions,
+                    action.id,
+                    sanitizeActionNoteDraft(event.target.value)
+                  )
+                )
               }
-              rows={2}
+              onBlur={(event) =>
+                onUpdate(
+                  finalizeActionNote(allActions, action.id, event.target.value)
+                )
+              }
+              maxLength={MAX_ACTION_NOTE_LENGTH}
               placeholder="What was done, who was contacted, or escalation context"
+              aria-label={`Notes for ${title}`}
               className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800"
             />
+            <span className="block text-xs text-slate-500">
+              Saved on this device. Synthetic demo information only.
+            </span>
           </label>
           {sources.length > 0 ? (
             <p className="text-xs text-slate-500">

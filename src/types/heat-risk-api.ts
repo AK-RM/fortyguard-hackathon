@@ -10,7 +10,6 @@ import type {
 import type { DateTimeMetadata } from "@/lib/discharge-timezone";
 import type { EnvironmentalQuery } from "@/lib/environmental-query";
 import type { EnvironmentalResult } from "@/lib/environmental-result";
-import type { EnvironmentalCacheStore } from "@/lib/environmental-cache";
 import type {
   DischargeJourney,
   DischargeLocation,
@@ -25,7 +24,6 @@ export type HeatRiskAssessmentRequest = {
   medications: MedicationRiskInput;
   homeSocial: HomeSocialInput;
   forceRefresh?: boolean;
-  clientEnvironmentalCache?: EnvironmentalCacheStore;
 };
 
 export type DestinationEnvironmentalData = {
@@ -97,6 +95,7 @@ export type HeatRiskAssessmentResponse = {
 
 export type HeatRiskProcessingResponse = {
   status: "processing";
+  activityToken: string;
   activityId: string;
   environmentalQuery: EnvironmentalQuery;
   inputFingerprint: string;
@@ -106,9 +105,7 @@ export type HeatRiskProcessingResponse = {
 
 export type HeatRiskStatusRequest = {
   request: HeatRiskAssessmentRequest;
-  activityId: string;
-  inputFingerprint: string;
-  environmentalQuery: EnvironmentalQuery;
+  activityToken: string;
   isRefresh?: boolean;
 };
 

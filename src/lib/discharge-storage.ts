@@ -1,4 +1,8 @@
-import type { EnvironmentalCacheStore } from "@/lib/environmental-cache";
+import type { VersionedEnvironmentalCacheStore } from "@/lib/environmental-cache";
+import {
+  createEmptyEnvironmentalCacheStore,
+  normalizeEnvironmentalCacheStore,
+} from "@/lib/environmental-cache";
 import type { DischargeRecord } from "@/types/discharge-workflow";
 import {
   DEMO_CASES,
@@ -18,13 +22,14 @@ import { TRANSPORT_MODE_LABELS } from "@/lib/transition-exposure";
 import type { DischargeDashboardSummary } from "@/types/discharge-workflow";
 
 export const STORAGE_KEY = "heatsafe-discharge-v1";
-export const STORAGE_VERSION = 2;
+export const STORAGE_VERSION = 3;
 
 export type PersistedDischargeState = {
   version: typeof STORAGE_VERSION;
   demoDataVersion?: number;
   discharges: Record<string, DischargeRecord>;
-  environmentalCache: EnvironmentalCacheStore;
+  environmentalCache: VersionedEnvironmentalCacheStore;
+  actionUiState?: Record<string, Record<string, { expanded?: boolean }>>;
 };
 
 export function createInitialPersistedState(
@@ -43,7 +48,8 @@ export function createInitialPersistedState(
     version: STORAGE_VERSION,
     demoDataVersion: DEMO_DATA_VERSION,
     discharges,
-    environmentalCache: {},
+    environmentalCache: createEmptyEnvironmentalCacheStore(),
+    actionUiState: {},
   };
 }
 
@@ -55,6 +61,7 @@ function normalizeDischargeRecord(record: DischargeRecord): DischargeRecord {
     environmentalRefresh: record.environmentalRefresh ?? null,
     pendingAssessment: record.pendingAssessment
       ? {
+          activityToken: record.pendingAssessment.activityToken,
           activityId: record.pendingAssessment.activityId,
           environmentalQuery: record.pendingAssessment.environmentalQuery,
           inputFingerprint: record.pendingAssessment.inputFingerprint,
@@ -64,11 +71,29 @@ function normalizeDischargeRecord(record: DischargeRecord): DischargeRecord {
   };
 }
 
-function normalizePersistedState(state: PersistedDischargeState): PersistedDischargeState {
+function migratePersistedStateVersion(state: PersistedDischargeState): PersistedDischargeState {
   const discharges = Object.fromEntries(
     Object.entries(state.discharges).map(([id, record]) => [
       id,
-      normalizeDischargeRecord(record),
+      {
+        ...normalizeDischargeRecord(record),
+        pendingAssessment:
+          record.pendingAssessment && "activityToken" in record.pendingAssessment
+            ? record.pendingAssessment
+            : null,
+        environmentalRefresh:
+          record.environmentalRefresh && "activityToken" in record.environmentalRefresh
+            ? record.environmentalRefresh
+            : null,
+        assessmentStatus:
+          record.assessmentStatus === "processing" &&
+          record.pendingAssessment &&
+          !("activityToken" in record.pendingAssessment)
+            ? record.assessment
+              ? "assessed"
+              : "not_assessed"
+            : record.assessmentStatus,
+      },
     ])
   );
 
@@ -76,7 +101,28 @@ function normalizePersistedState(state: PersistedDischargeState): PersistedDisch
     ...state,
     version: STORAGE_VERSION,
     discharges,
-    environmentalCache: state.environmentalCache ?? {},
+    environmentalCache: normalizeEnvironmentalCacheStore(state.environmentalCache),
+    actionUiState: state.actionUiState ?? {},
+  };
+}
+
+function normalizePersistedState(state: PersistedDischargeState): PersistedDischargeState {
+  const migrated =
+    (state.version ?? 0) < STORAGE_VERSION ? migratePersistedStateVersion(state) : state;
+
+  const discharges = Object.fromEntries(
+    Object.entries(migrated.discharges).map(([id, record]) => [
+      id,
+      normalizeDischargeRecord(record),
+    ])
+  );
+
+  return {
+    ...migrated,
+    version: STORAGE_VERSION,
+    discharges,
+    environmentalCache: normalizeEnvironmentalCacheStore(migrated.environmentalCache),
+    actionUiState: migrated.actionUiState ?? {},
   };
 }
 

@@ -14,9 +14,11 @@ import {
   updateAssessmentInputs,
 } from "@/lib/discharge-record-state";
 import {
+  createEmptyEnvironmentalCacheStore,
   lookupEnvironmentalResult,
   storeEnvironmentalResultInCache,
 } from "@/lib/environmental-cache";
+import { signActivityToken } from "@/lib/activity-token";
 import {
   buildEnvironmentalQueryFromDischarge,
   buildEnvironmentalQueryKey,
@@ -258,6 +260,11 @@ describe("processing lifecycle and stale safety", () => {
     const record = createDischargeRecordFromDemoCase(DEMO_CASE_A);
     const fingerprint = computeAssessmentInputFingerprint(record);
     const pending = {
+      activityToken: signActivityToken({
+        activityId: "activity-123",
+        environmentalQuery: VERIFIED_CENTRAL_PHOENIX_QUERY,
+        inputFingerprint: fingerprint,
+      }),
       activityId: "activity-123",
       environmentalQuery: VERIFIED_CENTRAL_PHOENIX_QUERY,
       inputFingerprint: fingerprint,
@@ -275,6 +282,11 @@ describe("processing lifecycle and stale safety", () => {
     const record = createDischargeRecordFromDemoCase(DEMO_CASE_A);
     const fingerprint = computeAssessmentInputFingerprint(record);
     const processing = applyProcessingAssessment(record, {
+      activityToken: signActivityToken({
+        activityId: "activity-123",
+        environmentalQuery: VERIFIED_CENTRAL_PHOENIX_QUERY,
+        inputFingerprint: fingerprint,
+      }),
       activityId: "activity-123",
       environmentalQuery: VERIFIED_CENTRAL_PHOENIX_QUERY,
       inputFingerprint: fingerprint,
@@ -293,14 +305,14 @@ describe("processing lifecycle and stale safety", () => {
   });
 
   it("stores completed environmental data only under the exact query key", () => {
-    const cache = storeEnvironmentalResultInCache({}, {
+    const cache = storeEnvironmentalResultInCache(createEmptyEnvironmentalCacheStore(), {
       ...VERIFIED_CENTRAL_PHOENIX_RESULT,
       activityId: "live-999",
       provenance: "live_fortyguard",
     });
 
-    expect(Object.keys(cache)).toHaveLength(1);
-    expect(cache[buildEnvironmentalQueryKey(VERIFIED_CENTRAL_PHOENIX_QUERY)]?.activityId).toBe(
+    expect(Object.keys(cache.entries)).toHaveLength(1);
+    expect(cache.entries[buildEnvironmentalQueryKey(VERIFIED_CENTRAL_PHOENIX_QUERY)]?.activityId).toBe(
       "live-999"
     );
   });
@@ -323,6 +335,30 @@ describe("force refresh bypasses cache lookup", () => {
 
     expect(activityId).toBe("new-live-activity");
     expect(fetch).toHaveBeenCalledTimes(1);
+
+    vi.unstubAllGlobals();
+  });
+
+  it("never includes action notes in FortyGuard heatmap submission payloads", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({ data: { activity_id: "new-live-activity" } }),
+      }))
+    );
+
+    process.env.FORTYGUARD_API_KEY = "test-key";
+
+    const { submitHeatmapJobForQuery } = await import("@/lib/fortyguard");
+    await submitHeatmapJobForQuery(VERIFIED_CENTRAL_PHOENIX_QUERY);
+
+    const init = (fetch as ReturnType<typeof vi.fn>).mock.calls[0]?.[1] as RequestInit;
+    const body = JSON.parse(String(init.body));
+
+    expect(body).not.toHaveProperty("note");
+    expect(body).not.toHaveProperty("actions");
+    expect(body).toHaveProperty("polygon_aoi");
 
     vi.unstubAllGlobals();
   });

@@ -12,6 +12,7 @@ import {
   resolveNumericDraft,
 } from "@/components/numeric-field-input";
 import { ActionWorkflowCard } from "@/components/action-workflow-card";
+import { isActionExpanded, setActionExpanded } from "@/lib/action-ui-state";
 import { ClinicalBasisPanel } from "@/components/clinical-basis-panel";
 import { EnvironmentalExposurePanel } from "@/components/environmental-exposure-panel";
 import { ScoreExplainer } from "@/components/score-explainer";
@@ -163,6 +164,14 @@ export default function DischargeWorkspace({ dischargeId }: { dischargeId: strin
     }
 
     persistRecord(updateWorkflowActions(record, actions));
+  }
+
+  function updateActionExpanded(actionId: string, expanded: boolean) {
+    if (!record || !state) {
+      return;
+    }
+
+    persist(setActionExpanded(state, record.id, actionId, expanded));
   }
 
   function loadPreset(preset: "A" | "B" | "C") {
@@ -496,6 +505,13 @@ export default function DischargeWorkspace({ dischargeId }: { dischargeId: strin
                   action={action}
                   record={record}
                   allActions={record.actions}
+                  expanded={isActionExpanded(
+                    state,
+                    record.id,
+                    action.id,
+                    Boolean(action.note?.trim())
+                  )}
+                  onExpandedChange={(expanded) => updateActionExpanded(action.id, expanded)}
                   onUpdate={updateActions}
                 />
               ))}

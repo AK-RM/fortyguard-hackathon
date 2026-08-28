@@ -6,6 +6,9 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["src/**/*.test.ts"],
+    env: {
+      HEATSAFE_STATE_SIGNING_SECRET: "test-signing-secret-for-vitest-only",
+    },
   },
   resolve: {
     alias: {
