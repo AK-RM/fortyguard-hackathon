@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
 import { AssessmentSummaryPanel } from "@/components/assessment-summary-panel";
 import { PreparedCaseSummary } from "@/components/prepared-case-summary";
@@ -47,6 +47,13 @@ import {
   validateDestinationForAssessment,
 } from "@/lib/location-coordinates";
 import { validateEnvironmentalQueryDatetime } from "@/lib/environmental-datetime-validation";
+import {
+  getFirstInvalidFieldTarget,
+  HEATSAFE_ASSESSMENT_STATUS_ID,
+  HEATSAFE_RUN_ASSESSMENT_BUTTON_ID,
+  scrollToAssessmentStatus,
+  scrollToField,
+} from "@/lib/discharge-assessment-ui";
 import {
   parseNumericDraft,
   validateAgeInput,
@@ -295,6 +302,58 @@ export default function DischargeWorkspace({ dischargeId }: { dischargeId: strin
       environmentalDatetimeError
   );
 
+  function scrollToFirstInvalidField() {
+    if (!record) {
+      return;
+    }
+
+    const firstInvalid = getFirstInvalidFieldTarget([
+      { error: destinationValidationError, elementId: "heatsafe-destination" },
+      { error: ageValidationError, elementId: `age-${dischargeId}` },
+      { error: durationValidationError, elementId: `duration-${dischargeId}` },
+      {
+        error: environmentalDatetimeError,
+        elementId: `heatsafe-departure-date-${dischargeId}`,
+      },
+    ]);
+
+    if (firstInvalid) {
+      scrollToField(firstInvalid.elementId);
+    }
+  }
+
+  function renderPrimaryAssessmentButton(options?: {
+    helperText?: ReactNode;
+  }) {
+    return (
+      <div className="space-y-3 border-t border-slate-100 pt-5">
+        {options?.helperText}
+        <div className="flex flex-col sm:flex-row sm:justify-end">
+          <button
+            id={HEATSAFE_RUN_ASSESSMENT_BUTTON_ID}
+            type="button"
+            onClick={() => void runAssessment()}
+            disabled={loading || (pendingIsCurrent && !loading)}
+            className="inline-flex min-h-11 w-full items-center justify-center rounded-md bg-sky-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-sky-800 disabled:opacity-60 sm:w-auto sm:min-w-[16rem]"
+          >
+            {loading
+              ? "Running assessment…"
+              : pendingIsCurrent
+                ? "Processing…"
+                : hasCurrentResult
+                  ? "Update assessment"
+                  : "Run HeatSafe assessment"}
+          </button>
+        </div>
+        {error ? (
+          <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 sm:text-right">
+            {error}
+          </p>
+        ) : null}
+      </div>
+    );
+  }
+
   async function runAssessment(options?: { forceRefresh?: boolean }) {
     if (!record) {
       return;
@@ -304,11 +363,18 @@ export default function DischargeWorkspace({ dischargeId }: { dischargeId: strin
 
     if ("error" in committed) {
       setError(committed.error);
+      scrollToFirstInvalidField();
       return;
     }
 
     if (validateDestinationForAssessment(committed.destination)) {
       setError("Choose a valid Arizona destination before running HeatSafe.");
+      scrollToField("heatsafe-destination");
+      return;
+    }
+
+    if (assessmentBlocked) {
+      scrollToFirstInvalidField();
       return;
     }
 
@@ -323,6 +389,11 @@ export default function DischargeWorkspace({ dischargeId }: { dischargeId: strin
 
     if (!result.ok) {
       setError(result.error);
+      scrollToAssessmentStatus();
+    } else {
+      window.requestAnimationFrame(() => {
+        scrollToAssessmentStatus();
+      });
     }
 
     setLoading(false);
@@ -396,11 +467,12 @@ export default function DischargeWorkspace({ dischargeId }: { dischargeId: strin
         </div>
       ) : null}
 
+      <div id={HEATSAFE_ASSESSMENT_STATUS_ID} className="scroll-mt-6 space-y-6">
       {record.assessment?.environmentalAvailable === false &&
       record.assessmentStatus === "environmental_unavailable" &&
       !loading &&
       !pendingIsCurrent ? (
-        <div className="mb-6 rounded-xl border border-red-200 bg-red-50 p-5 text-sm text-red-900">
+        <div className="rounded-xl border border-red-200 bg-red-50 p-5 text-sm text-red-900">
           <p className="font-semibold">Environmental data unavailable</p>
           <p className="mt-2">
             {record.environmentalFailure ??
@@ -436,37 +508,13 @@ export default function DischargeWorkspace({ dischargeId }: { dischargeId: strin
         </div>
       ) : null}
 
-      {!hasCurrentResult && isDemoCase && !showEditDetails ? (
-        <div className="mb-6">
-          <PreparedCaseSummary record={record} />
-        </div>
-      ) : null}
-
-      <div className="my-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-        {!hasCurrentResult && isDemoCase && !showEditDetails ? (
-          <p className="mb-3 text-sm text-slate-600">
-            Review the prepared case above, then run assessment.
-          </p>
-        ) : !hasCurrentResult ? (
-          <p className="mb-3 text-sm text-slate-600">
-            Complete discharge details, then run assessment.
-          </p>
-        ) : null}
+      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
-          <button
-            type="button"
-            onClick={() => runAssessment()}
-            disabled={loading || (pendingIsCurrent && !loading) || assessmentBlocked}
-            className="inline-flex min-h-11 w-full items-center justify-center rounded-md bg-sky-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-sky-800 disabled:opacity-60 sm:w-auto"
-          >
-            {loading
-              ? "Running assessment…"
-              : pendingIsCurrent
-                ? "Processing…"
-                : hasCurrentResult
-                  ? "Update assessment"
-                  : "Run HeatSafe assessment"}
-          </button>
+          {isDemoCase && !showEditDetails ? null : !hasCurrentResult ? (
+            <p className="w-full text-sm text-slate-600">
+              Complete discharge details below, then run assessment.
+            </p>
+          ) : null}
           {isDemoCase && !showEditDetails ? (
             <button
               type="button"
@@ -510,6 +558,7 @@ export default function DischargeWorkspace({ dischargeId }: { dischargeId: strin
         {loading ? (
           <p className="mt-3 text-sm text-slate-600">Submitting assessment…</p>
         ) : null}
+
         {record.assessmentStatus === "processing" && record.pendingAssessment ? (
           <div className="mt-3 rounded-md border border-sky-200 bg-sky-50 px-3 py-3 text-sm text-sky-950">
             <p className="font-medium">Environmental data processing</p>
@@ -559,12 +608,21 @@ export default function DischargeWorkspace({ dischargeId }: { dischargeId: strin
             {record.environmentalRefreshFailure}
           </p>
         ) : null}
-        {error ? (
-          <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
-            {error}
-          </p>
-        ) : null}
       </div>
+      </div>
+
+      {!hasCurrentResult && isDemoCase && !showEditDetails ? (
+        <div className="mb-6">
+          <PreparedCaseSummary record={record} />
+          {renderPrimaryAssessmentButton({
+            helperText: (
+              <p className="text-sm text-slate-600">
+                Review the prepared case above, then run assessment.
+              </p>
+            ),
+          })}
+        </div>
+      ) : null}
 
       {(showEditDetails || !isDemoCase) ? (
         <div className="space-y-6">
@@ -607,6 +665,7 @@ export default function DischargeWorkspace({ dischargeId }: { dischargeId: strin
                 destination={record.destination}
                 onChange={updateDestination}
                 showMethodSelectorFirst={!isDemoCase}
+                containerId="heatsafe-destination"
               />
             </div>
 
@@ -616,6 +675,7 @@ export default function DischargeWorkspace({ dischargeId }: { dischargeId: strin
                 <input
                   type="date"
                   min="2021-01-01"
+                  id={`heatsafe-departure-date-${dischargeId}`}
                   value={record.journey.date}
                   onChange={(event) =>
                     updateInputs({
@@ -835,6 +895,10 @@ export default function DischargeWorkspace({ dischargeId }: { dischargeId: strin
                 ))}
             </div>
           </SectionCard>
+
+          {showEditDetails || !isDemoCase
+            ? renderPrimaryAssessmentButton()
+            : null}
             </div>
           </details>
         </div>

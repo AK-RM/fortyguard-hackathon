@@ -23,6 +23,7 @@ type DestinationLocationControlProps = {
   onChange: (destination: DischargeLocation) => void;
   /** When true, show the three entry methods before any confirmed summary. */
   showMethodSelectorFirst?: boolean;
+  containerId?: string;
 };
 
 type GeocodeUiState =
@@ -73,6 +74,7 @@ export function DestinationLocationControl({
   destination,
   onChange,
   showMethodSelectorFirst = false,
+  containerId,
 }: DestinationLocationControlProps) {
   const [activeMethod, setActiveMethod] = useState<DestinationLocationMethod | null>(null);
   const [isConfirmed, setIsConfirmed] = useState(() => {
@@ -256,7 +258,7 @@ export function DestinationLocationControl({
 
   if (isConfirmed) {
     return (
-      <div className="space-y-3">
+      <div id={containerId} className="space-y-3">
         <div>
           <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
             Post-discharge destination
@@ -283,7 +285,7 @@ export function DestinationLocationControl({
   }
 
   return (
-    <div className="space-y-4">
+    <div id={containerId} className="space-y-4">
       <div>
         <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
           Post-discharge destination
