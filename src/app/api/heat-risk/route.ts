@@ -6,7 +6,12 @@ import {
 } from "@/lib/assessment-orchestration";
 import { fingerprintFromRequest } from "@/lib/discharge-record-state";
 import { lookupEnvironmentalResult } from "@/lib/environmental-cache";
+import {
+  getEnvironmentalFailureMessage,
+  mapFortyGuardErrorKindToReasonCode,
+} from "@/lib/environmental-failure";
 import { buildEnvironmentalQueryFromDischarge } from "@/lib/environmental-query";
+import { validateEnvironmentalQueryDatetime } from "@/lib/environmental-datetime-validation";
 import { FortyGuardError, submitHeatmapJobForQuery } from "@/lib/fortyguard";
 import { parseHeatRiskRequest } from "@/lib/parse-heat-risk-request";
 
@@ -36,6 +41,21 @@ export async function POST(request: Request) {
   const inputFingerprint = fingerprintFromRequest(parsed);
 
   try {
+    const datetimeValidation = validateEnvironmentalQueryDatetime({
+      journey: parsed.journey,
+    });
+
+    if (!datetimeValidation.ok) {
+      return NextResponse.json(
+        buildEnvironmentalUnavailableAssessment({
+          parsed,
+          environmentalQuery,
+          environmentalFailureReason: datetimeValidation.reasonCode,
+          environmentalFailure: datetimeValidation.message,
+        })
+      );
+    }
+
     if (!forceRefresh) {
       const cachedResult = lookupEnvironmentalResult(
         environmentalQuery,
@@ -78,10 +98,11 @@ export async function POST(request: Request) {
         buildEnvironmentalUnavailableAssessment({
           parsed,
           environmentalQuery,
+          environmentalFailureReason: mapFortyGuardErrorKindToReasonCode(error.kind),
           environmentalFailure:
             error.kind === "failed"
-              ? "FortyGuard heat analysis failed. Environmental assessment is unavailable."
-              : "FortyGuard is unavailable. Environmental assessment is unavailable.",
+              ? getEnvironmentalFailureMessage("upstream_failed")
+              : getEnvironmentalFailureMessage(mapFortyGuardErrorKindToReasonCode(error.kind)),
         })
       );
     }

@@ -22,7 +22,7 @@ import {
   buildEnvironmentalQueryKey,
   canonicalizeCoordinate,
 } from "@/lib/environmental-query";
-import { buildEnvironmentalResultFromFortyGuard } from "@/lib/environmental-result";
+import { buildEnvironmentalResultFromFortyGuard } from "@/lib/map-fortyguard-environment";
 import {
   isFortyGuardCompletedStatus,
   isFortyGuardFailedStatus,
@@ -145,7 +145,7 @@ describe("verified Central Phoenix seed", () => {
     expect(VERIFIED_CENTRAL_PHOENIX_RESULT.activityId).toBe(
       VERIFIED_CENTRAL_PHOENIX_ACTIVITY_ID
     );
-    expect(VERIFIED_CENTRAL_PHOENIX_RESULT.provenance).toBe("verified_historical");
+    expect(VERIFIED_CENTRAL_PHOENIX_RESULT.provenance).toBe("verified_historical_snapshot");
     expect(VERIFIED_CENTRAL_PHOENIX_RESULT.meanTemperatureC).toBe(41.55235);
     expect(VERIFIED_CENTRAL_PHOENIX_RESULT.cellCount).toBe(16);
   });
@@ -245,11 +245,11 @@ describe("FortyGuard status normalization", () => {
         },
       },
       mapData: { features: Array.from({ length: 16 }, (_, index) => ({ id: index })) },
-      provenance: "live_completed",
+      provenance: "live_fortyguard",
     });
 
     expect(result?.cellCount).toBe(16);
-    expect(result?.provenance).toBe("live_completed");
+    expect(result?.provenance).toBe("live_fortyguard");
   });
 });
 
@@ -296,7 +296,7 @@ describe("processing lifecycle and stale safety", () => {
     const cache = storeEnvironmentalResultInCache({}, {
       ...VERIFIED_CENTRAL_PHOENIX_RESULT,
       activityId: "live-999",
-      provenance: "live_completed",
+      provenance: "live_fortyguard",
     });
 
     expect(Object.keys(cache)).toHaveLength(1);

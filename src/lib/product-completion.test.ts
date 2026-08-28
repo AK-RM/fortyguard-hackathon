@@ -134,8 +134,8 @@ describe("environmental counterfactual", () => {
 
     expect(comparison.scenarioA.activityId).toBe(VERIFIED_CENTRAL_PHOENIX_ACTIVITY_ID);
     expect(comparison.scenarioB.activityId).toBe(VERIFIED_CENTRAL_PHOENIX_EARLY_ACTIVITY_ID);
-    expect(comparison.scenarioA.provenance).toBe("verified_historical");
-    expect(comparison.scenarioB.provenance).toBe("verified_historical");
+    expect(comparison.scenarioA.provenance).toBe("verified_historical_snapshot");
+    expect(comparison.scenarioB.provenance).toBe("verified_historical_snapshot");
   });
 
   it("changes environmental contribution when verified query changes", () => {

@@ -264,6 +264,21 @@ export function useEnvironmentalAssessment(params: {
         }
 
         if (isProcessingResponse(data)) {
+          const pendingChanged =
+            data.activityId !== activityId ||
+            data.environmentalQuery.aoiSideMeters !== environmentalQuery.aoiSideMeters;
+
+          if (pendingChanged) {
+            persistRecord(
+              applyProcessingAssessment(record, {
+                activityId: data.activityId,
+                environmentalQuery: data.environmentalQuery,
+                inputFingerprint: data.inputFingerprint,
+                submittedAt: data.submittedAt,
+              })
+            );
+          }
+
           return;
         }
 
@@ -272,7 +287,7 @@ export function useEnvironmentalAssessment(params: {
         // Keep processing state; clinician can manually check again.
       }
     },
-    [buildRequest, finalizeAssessment, record, state]
+    [buildRequest, finalizeAssessment, persistRecord, record, state]
   );
 
   useEffect(() => {

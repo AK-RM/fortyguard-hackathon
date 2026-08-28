@@ -83,6 +83,15 @@ export function AssessmentSummaryPanel({ record }: AssessmentSummaryPanelProps) 
       <p className="mt-5 text-sm text-slate-500">
         Supporting score: {assessment.totalRiskScore}/100 · experimental
       </p>
+      {assessment.rawRiskScore !== null &&
+      assessment.totalRiskScore !== null &&
+      assessment.rawRiskScore > assessment.totalRiskScore ? (
+        <p className="mt-2 text-sm text-slate-600">
+          Protective factors reduced the underlying workflow score from{" "}
+          {assessment.rawRiskScore} to the {assessment.totalRiskScore}/100 cap. Priority tier
+          is determined separately and may remain unchanged.
+        </p>
+      ) : null}
     </section>
   );
 }

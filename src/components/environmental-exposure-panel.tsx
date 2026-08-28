@@ -55,7 +55,19 @@ export function EnvironmentalExposurePanel({
         {env.meanTemperatureC.toFixed(1)}°C · {severity}
       </p>
       <p className="mt-2 text-sm text-slate-700">Expected arrival {arrivalTime}</p>
-      <p className="mt-3 text-sm text-slate-600">Source: FortyGuard</p>
+      <p className="mt-2 text-sm font-medium text-slate-800">
+        {env.environmentalProvenanceLabel}
+      </p>
+      <p className="mt-1 text-sm text-slate-600">
+        Configured historical window: {env.configuredHistoricalQueryDate} ·{" "}
+        {env.configuredHistoricalQueryHour} local
+      </p>
+      {env.aoiFallbackUsed ? (
+        <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+          Expanded neighbourhood AOI used ({env.aoiSideMeters} m) because the initial
+          hyperlocal request returned no usable temperature cells.
+        </p>
+      ) : null}
 
       <button
         type="button"
@@ -90,6 +102,13 @@ export function EnvironmentalExposurePanel({
             <dd>
               {env.maximumTemperatureC.toFixed(1)} °C /{" "}
               {env.minimumTemperatureC?.toFixed(1) ?? "—"} °C
+            </dd>
+          </div>
+          <div>
+            <dt className="font-medium text-slate-900">AOI / granularity / cells</dt>
+            <dd>
+              {env.aoiSideMeters} m · granularity {env.granularity} · {env.cellCount}{" "}
+              cells
             </dd>
           </div>
           <div>

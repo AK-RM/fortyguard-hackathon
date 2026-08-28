@@ -9,6 +9,8 @@ export type ArizonaLocationPreset = {
   description: string;
   /** Present when coordinates should be manually verified against the named place. */
   verificationNote?: string;
+  /** Whether FortyGuard environmental coverage is verified for the demo date/hour. */
+  environmentalCoverageStatus?: "verified" | "conditional" | "unverified";
 };
 
 export const ARIZONA_TIME_ZONE = "America/Phoenix";
@@ -23,6 +25,7 @@ export const PHOENIX_DEMO_PRESET: ArizonaLocationPreset = {
   longitude: -112.074,
   timeZone: "America/Phoenix",
   description: "Validated Phoenix demo scenario (18 Aug 2026, 14:00 local)",
+  environmentalCoverageStatus: "verified",
 };
 
 /** Coordinates approximate the downtown Phoenix campus area — verify before production use. */
@@ -46,6 +49,7 @@ export const MESA_PRESET: ArizonaLocationPreset = {
   description: "East Valley home destination preset",
   verificationNote:
     "Manual verification recommended: confirm coordinates match the intended Mesa destination.",
+  environmentalCoverageStatus: "conditional",
 };
 
 export const SCOTTSDALE_PRESET: ArizonaLocationPreset = {
@@ -57,6 +61,7 @@ export const SCOTTSDALE_PRESET: ArizonaLocationPreset = {
   description: "Scottsdale home destination preset",
   verificationNote:
     "Manual verification recommended: confirm coordinates match the intended Scottsdale destination.",
+  environmentalCoverageStatus: "conditional",
 };
 
 /** Coordinates approximate the Tucson Medical Center campus area — verify before production use. */
@@ -109,4 +114,20 @@ export function getPhoenixDemoDateTime() {
 
 export function getPresetById(id: string): ArizonaLocationPreset | null {
   return ARIZONA_LOCATION_PRESETS.find((preset) => preset.id === id) ?? null;
+}
+
+export function isPresetEnvironmentalCoverageBlocked(
+  preset: ArizonaLocationPreset
+): boolean {
+  return preset.environmentalCoverageStatus === "unverified";
+}
+
+export function getPresetEnvironmentalCoverageMessage(
+  preset: ArizonaLocationPreset
+): string | null {
+  if (preset.environmentalCoverageStatus === "unverified") {
+    return "Environmental coverage not currently verified for this location.";
+  }
+
+  return null;
 }

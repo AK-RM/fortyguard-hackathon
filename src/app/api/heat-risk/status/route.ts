@@ -5,10 +5,16 @@ import {
   buildEnvironmentalUnavailableAssessment,
 } from "@/lib/assessment-orchestration";
 import { fingerprintFromRequest } from "@/lib/discharge-record-state";
-import { buildEnvironmentalResultFromFortyGuard } from "@/lib/environmental-result";
+import { acquireCompletedEnvironmentalData } from "@/lib/environmental-acquisition";
+import {
+  getEnvironmentalFailureMessage,
+  mapFortyGuardErrorKindToReasonCode,
+} from "@/lib/environmental-failure";
+import { validateEnvironmentalQueryDatetime } from "@/lib/environmental-datetime-validation";
 import {
   FortyGuardError,
   checkHeatmapStatusOnce,
+  submitHeatmapJobForQuery,
 } from "@/lib/fortyguard";
 import { parseHeatRiskRequest } from "@/lib/parse-heat-risk-request";
 import type {
@@ -95,29 +101,55 @@ export async function POST(request: Request) {
         buildEnvironmentalUnavailableAssessment({
           parsed: parsed.request,
           environmentalQuery: parsed.environmentalQuery,
-          environmentalFailure:
-            "FortyGuard heat analysis failed. Environmental assessment is unavailable.",
+          environmentalFailureReason: "upstream_failed",
+          environmentalFailure: getEnvironmentalFailureMessage("upstream_failed"),
         })
       );
     }
 
-    const environmentalResult = buildEnvironmentalResultFromFortyGuard({
+    const acquisition = acquireCompletedEnvironmentalData({
       activityId: parsed.activityId,
       query: parsed.environmentalQuery,
-      statsData: statusCheck.statsData,
-      mapData: statusCheck.mapData,
-      provenance: "live_completed",
-      provenanceNote:
-        "Live completed FortyGuard result retrieved asynchronously for this exact environmental query.",
+      statusCheck,
     });
 
-    if (!environmentalResult) {
+    if (acquisition.kind === "retry_expanded") {
+      const datetimeValidation = validateEnvironmentalQueryDatetime({
+        journey: parsed.request.journey,
+      });
+
+      if (!datetimeValidation.ok) {
+        return NextResponse.json(
+          buildEnvironmentalUnavailableAssessment({
+            parsed: parsed.request,
+            environmentalQuery: parsed.environmentalQuery,
+            environmentalFailureReason: datetimeValidation.reasonCode,
+            environmentalFailure: datetimeValidation.message,
+          })
+        );
+      }
+
+      const fallbackActivityId = await submitHeatmapJobForQuery(acquisition.expandedQuery);
+
+      const response: HeatRiskStatusResponse = {
+        status: "processing",
+        activityId: fallbackActivityId,
+        environmentalQuery: acquisition.expandedQuery,
+        inputFingerprint: parsed.inputFingerprint,
+        submittedAt: new Date().toISOString(),
+        isRefresh: parsed.isRefresh === true,
+      };
+
+      return NextResponse.json(response);
+    }
+
+    if (acquisition.kind === "unavailable") {
       return NextResponse.json(
         buildEnvironmentalUnavailableAssessment({
           parsed: parsed.request,
           environmentalQuery: parsed.environmentalQuery,
-          environmentalFailure:
-            "FortyGuard returned data in an unexpected format. Environmental assessment is unavailable.",
+          environmentalFailureReason: acquisition.reasonCode,
+          environmentalFailure: getEnvironmentalFailureMessage(acquisition.reasonCode),
         })
       );
     }
@@ -126,7 +158,7 @@ export async function POST(request: Request) {
       buildCompletedHeatRiskAssessment({
         parsed: parsed.request,
         environmentalQuery: parsed.environmentalQuery,
-        environmentalResult,
+        environmentalResult: acquisition.result,
       })
     );
   } catch (error) {
@@ -140,11 +172,14 @@ export async function POST(request: Request) {
         );
       }
 
+      const reasonCode = mapFortyGuardErrorKindToReasonCode(error.kind);
+
       return NextResponse.json(
         buildEnvironmentalUnavailableAssessment({
           parsed: parsed.request,
           environmentalQuery: parsed.environmentalQuery,
-          environmentalFailure: "FortyGuard is unavailable. Environmental assessment is unavailable.",
+          environmentalFailureReason: reasonCode,
+          environmentalFailure: getEnvironmentalFailureMessage(reasonCode),
         })
       );
     }

@@ -61,7 +61,18 @@ export async function POST(request: Request) {
   }
 
   try {
-    const { candidates, outsideArizonaCount } = await searchArizonaAddresses(address);
+    const { candidates, outsideArizonaCount, rejectedExplicitNonArizona } =
+      await searchArizonaAddresses(address);
+
+    if (rejectedExplicitNonArizona) {
+      return NextResponse.json({
+        candidates: [],
+        outsideArizonaCount: 1,
+        rejectedExplicitNonArizona: true,
+        error:
+          "Location outside supported area. This hackathon deployment currently supports Arizona destinations only.",
+      });
+    }
 
     return NextResponse.json({
       candidates,

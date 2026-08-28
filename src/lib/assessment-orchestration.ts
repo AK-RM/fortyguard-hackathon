@@ -23,9 +23,8 @@ import type {
   HeatRiskAssessmentResponse,
 } from "@/types/heat-risk-api";
 
+import type { EnvironmentalFailureReasonCode } from "@/lib/environmental-failure";
 import { fingerprintFromRequest } from "./discharge-record-state";
-
-const AOI_SIDE_METERS = 400;
 
 function buildHeatsafeAdditions(
   actions: Array<{ id: string; action: string }>
@@ -47,11 +46,15 @@ function buildHeatsafeAdditions(
 }
 
 function provenanceDisplayLabel(provenance: EnvironmentalResult["provenance"]): string {
-  if (provenance === "verified_historical") {
-    return "Verified historical FortyGuard environmental intelligence";
+  if (provenance === "verified_historical_snapshot") {
+    return "Verified historical FortyGuard snapshot";
   }
 
-  return "Live completed FortyGuard environmental intelligence";
+  if (provenance === "live_fortyguard") {
+    return "Live FortyGuard query";
+  }
+
+  return "Environmental data unavailable";
 }
 
 export function buildDestinationEnvironmentalData(params: {
@@ -116,7 +119,11 @@ export function buildDestinationEnvironmentalData(params: {
     ),
     environmentalProvenanceNote: environmentalResult.provenanceNote ?? null,
     dataSource: "FortyGuard heatmap API (stats_data.temperature_stats)",
-    aoiSideMeters: AOI_SIDE_METERS,
+    aoiSideMeters: environmentalResult.aoiSideMetersUsed,
+    aoiFallbackUsed: environmentalResult.aoiFallbackUsed,
+    granularity: environmentalResult.granularityUsed,
+    configuredHistoricalQueryDate: environmentalQuery.startDate,
+    configuredHistoricalQueryHour: environmentalQuery.startTime,
   };
 }
 
@@ -193,6 +200,7 @@ export function buildEnvironmentalUnavailableAssessment(params: {
   parsed: HeatRiskAssessmentRequest;
   environmentalQuery: EnvironmentalQuery;
   environmentalFailure: string;
+  environmentalFailureReason?: EnvironmentalFailureReasonCode;
   assessedAt?: string;
 }): HeatRiskAssessmentResponse {
   const assessedAt = params.assessedAt ?? new Date().toISOString();
@@ -202,6 +210,7 @@ export function buildEnvironmentalUnavailableAssessment(params: {
     fortyGuardDataUsed: false,
     environmentalAvailable: false,
     environmentalFailure: params.environmentalFailure,
+    environmentalFailureReason: params.environmentalFailureReason ?? "unusable_temperature_statistics",
     assessedAt,
     inputFingerprint: fingerprintFromRequest(params.parsed),
     environmentalQuery: params.environmentalQuery,

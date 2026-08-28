@@ -99,17 +99,63 @@ export function partitionGeocodeCandidatesByArizonaScope(
   return { inArizona, outsideArizona };
 }
 
+/** Returns true when the query clearly targets a location outside Arizona. */
+export function isExplicitNonArizonaSearchQuery(address: string): boolean {
+  const normalized = address.trim().toLowerCase();
+
+  if (
+    normalized.includes("arizona") ||
+    normalized.endsWith(", az") ||
+    normalized.includes(", az ")
+  ) {
+    return false;
+  }
+
+  const blockedTokens = [
+    ", ca",
+    " california",
+    ", california",
+    "los angeles",
+    "san diego",
+    ", tx",
+    " texas",
+    ", nv",
+    " nevada",
+    ", nm",
+    " new mexico",
+    ", ut",
+    " utah",
+    ", co",
+    " colorado",
+    ", wa",
+    " washington",
+    ", or",
+    " oregon",
+  ];
+
+  return blockedTokens.some((token) => normalized.includes(token));
+}
+
 export async function searchArizonaAddresses(
   address: string,
   fetchImpl: typeof fetch = fetch
 ): Promise<{
   candidates: GeocodeCandidate[];
   outsideArizonaCount: number;
+  rejectedExplicitNonArizona?: boolean;
 }> {
   const trimmed = address.trim();
 
   if (trimmed.length < 3) {
     return { candidates: [], outsideArizonaCount: 0 };
+  }
+
+  if (isExplicitNonArizonaSearchQuery(trimmed)) {
+    return {
+      candidates: [],
+      outsideArizonaCount: 1,
+      rejectedExplicitNonArizona: true,
+    };
   }
 
   const query = trimmed.toLowerCase().includes("arizona") || trimmed.toLowerCase().includes(", az")

@@ -6,6 +6,8 @@ import {
 } from "./discharge-timezone";
 
 export const DEFAULT_AOI_SIDE_METERS = 400;
+export const INITIAL_AOI_SIDE_METERS = 400;
+export const EXPANDED_AOI_SIDE_METERS = 1600;
 export const DEFAULT_GRANULARITY = 100;
 
 export type EnvironmentalQuery = {
@@ -56,6 +58,19 @@ export function buildEnvironmentalQueryFromDischarge(
     aoiSideMeters: options?.aoiSideMeters ?? DEFAULT_AOI_SIDE_METERS,
     granularity: options?.granularity ?? DEFAULT_GRANULARITY,
   };
+}
+
+export function buildExpandedEnvironmentalQuery(
+  query: EnvironmentalQuery
+): EnvironmentalQuery {
+  return {
+    ...query,
+    aoiSideMeters: EXPANDED_AOI_SIDE_METERS,
+  };
+}
+
+export function isInitialAoiQuery(query: EnvironmentalQuery): boolean {
+  return query.aoiSideMeters === INITIAL_AOI_SIDE_METERS;
 }
 
 export function environmentalQueriesMatch(

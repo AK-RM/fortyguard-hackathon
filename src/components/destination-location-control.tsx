@@ -193,6 +193,7 @@ export function DestinationLocationControl({
       const payload = (await response.json()) as {
         candidates?: GeocodeCandidate[];
         outsideArizonaCount?: number;
+        rejectedExplicitNonArizona?: boolean;
         error?: string;
         unavailable?: boolean;
       };
@@ -202,6 +203,15 @@ export function DestinationLocationControl({
         setGeocodeMessage(
           payload.error ??
             "Location lookup is temporarily unavailable. You can still enter coordinates manually."
+        );
+        return;
+      }
+
+      if (payload.rejectedExplicitNonArizona) {
+        setGeocodeState("outside_arizona");
+        setGeocodeMessage(
+          payload.error ??
+            "Location outside supported area. This hackathon deployment currently supports Arizona destinations only."
         );
         return;
       }
@@ -323,6 +333,11 @@ export function DestinationLocationControl({
               {ARIZONA_LOCATION_PRESETS.map((preset: ArizonaLocationPreset) => (
                 <option key={preset.id} value={preset.id}>
                   {preset.label}
+                  {preset.environmentalCoverageStatus === "unverified"
+                    ? " — coverage unverified"
+                    : preset.environmentalCoverageStatus === "conditional"
+                      ? " — may use expanded AOI"
+                      : ""}
                 </option>
               ))}
             </select>
@@ -393,7 +408,7 @@ export function DestinationLocationControl({
                   <li key={candidate.id}>
                     <div className="rounded-md border border-slate-200 bg-white p-3">
                       <p className="text-sm font-medium text-slate-900">{candidate.label}</p>
-                      <p className="text-sm text-slate-600">{candidate.cityState}</p>
+                      <p className="text-sm font-semibold text-slate-700">{candidate.cityState}</p>
                       <p className="mt-1 break-all font-mono text-xs text-slate-500">
                         {candidate.latitude.toFixed(4)}, {candidate.longitude.toFixed(4)}
                       </p>

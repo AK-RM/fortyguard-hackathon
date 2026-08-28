@@ -46,6 +46,7 @@ import {
   buildLocationFromPreset,
   validateDestinationForAssessment,
 } from "@/lib/location-coordinates";
+import { validateEnvironmentalQueryDatetime } from "@/lib/environmental-datetime-validation";
 import {
   parseNumericDraft,
   validateAgeInput,
@@ -271,8 +272,27 @@ export default function DischargeWorkspace({ dischargeId }: { dischargeId: strin
     : null;
   const ageValidationError = validateAgeInput(ageInput);
   const durationValidationError = validateDurationInput(durationInput);
+  const journeyForEnvironmentalValidation = record
+    ? {
+        ...record.journey,
+        durationMinutes:
+          parseNumericDraft(durationInput) ?? record.journey.durationMinutes,
+      }
+    : null;
+  const environmentalDatetimeValidation = journeyForEnvironmentalValidation
+    ? validateEnvironmentalQueryDatetime({
+        journey: journeyForEnvironmentalValidation,
+      })
+    : null;
+  const environmentalDatetimeError =
+    environmentalDatetimeValidation && !environmentalDatetimeValidation.ok
+      ? environmentalDatetimeValidation.message
+      : null;
   const assessmentBlocked = Boolean(
-    destinationValidationError || ageValidationError || durationValidationError
+    destinationValidationError ||
+      ageValidationError ||
+      durationValidationError ||
+      environmentalDatetimeError
   );
 
   async function runAssessment(options?: { forceRefresh?: boolean }) {
@@ -595,6 +615,7 @@ export default function DischargeWorkspace({ dischargeId }: { dischargeId: strin
                 <span className="mb-1 block font-medium">Expected departure date</span>
                 <input
                   type="date"
+                  min="2021-01-01"
                   value={record.journey.date}
                   onChange={(event) =>
                     updateInputs({
@@ -618,6 +639,17 @@ export default function DischargeWorkspace({ dischargeId }: { dischargeId: strin
                 />
               </label>
             </div>
+            {environmentalDatetimeError ? (
+              <p className="mt-3 text-sm text-amber-900" role="alert">
+                {environmentalDatetimeError}
+              </p>
+            ) : (
+              <p className="mt-3 text-sm text-slate-600">
+                FortyGuard coverage is based on estimated destination arrival time.
+                Historical data starts 1 January 2021; forecast data is available up
+                to 12 hours ahead.
+              </p>
+            )}
           </SectionCard>
 
           <SectionCard title="Journey">

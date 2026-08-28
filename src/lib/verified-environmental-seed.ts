@@ -29,9 +29,12 @@ export const VERIFIED_CENTRAL_PHOENIX_RESULT: EnvironmentalResult = {
   meanTemperatureC: 41.55235,
   standardDeviation: 0.00659282438210968,
   cellCount: 16,
-  provenance: "verified_historical",
+  provenance: "verified_historical_snapshot",
   provenanceNote:
-    "Verified historical FortyGuard result captured during hackathon development for Central Phoenix Single Hour 2026-08-18 14:00–15:00 local.",
+    "Verified historical FortyGuard snapshot captured during hackathon development for Central Phoenix Single Hour 2026-08-18 14:00–15:00 local. This is not a live query at assessment time.",
+  aoiSideMetersUsed: 400,
+  aoiFallbackUsed: false,
+  granularityUsed: 100,
   status: "completed",
 };
 
@@ -62,9 +65,12 @@ export const VERIFIED_TUCSON_RESULT: EnvironmentalResult = {
   meanTemperatureC: 39.71535,
   standardDeviation: 0.05113288011222598,
   cellCount: 8,
-  provenance: "verified_historical",
+  provenance: "verified_historical_snapshot",
   provenanceNote:
-    "Verified FortyGuard result captured during hackathon product verification for Tucson Single Hour 2026-08-18 14:00–15:00 local.",
+    "Verified FortyGuard snapshot captured during hackathon product verification for Tucson Single Hour 2026-08-18 14:00–15:00 local. This is not a live query at assessment time.",
+  aoiSideMetersUsed: 400,
+  aoiFallbackUsed: false,
+  granularityUsed: 100,
   status: "completed",
 };
 
@@ -95,9 +101,12 @@ export const VERIFIED_CENTRAL_PHOENIX_EARLY_RESULT: EnvironmentalResult = {
   meanTemperatureC: 34.2316125,
   standardDeviation: 0.010505292317049999,
   cellCount: 16,
-  provenance: "verified_historical",
+  provenance: "verified_historical_snapshot",
   provenanceNote:
-    "Verified FortyGuard result captured during hackathon product verification for Central Phoenix Single Hour 2026-08-18 06:00–07:00 local.",
+    "Verified FortyGuard snapshot captured during hackathon product verification for Central Phoenix Single Hour 2026-08-18 06:00–07:00 local. This is not a live query at assessment time.",
+  aoiSideMetersUsed: 400,
+  aoiFallbackUsed: false,
+  granularityUsed: 100,
   status: "completed",
 };
 

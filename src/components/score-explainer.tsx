@@ -75,6 +75,13 @@ export function ScoreExplainer({
       <p className="text-sm font-medium text-slate-900">
         Raw workflow score: {rawScore} · Capped workflow score: {score}/100
       </p>
+      {rawScore > score ? (
+        <p className="mt-2 text-sm text-slate-600">
+          The capped score reflects the workflow maximum of 100. A lower capped score means
+          protective factors reduced the underlying total, but the priority tier can still
+          remain unchanged.
+        </p>
+      ) : null}
     </div>
   );
 }

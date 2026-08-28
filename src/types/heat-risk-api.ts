@@ -51,6 +51,10 @@ export type DestinationEnvironmentalData = {
   environmentalProvenanceNote: string | null;
   dataSource: string;
   aoiSideMeters: number;
+  aoiFallbackUsed: boolean;
+  granularity: number;
+  configuredHistoricalQueryDate: string;
+  configuredHistoricalQueryHour: string;
 };
 
 export type TransitionEnvironmentalData = {
@@ -69,6 +73,7 @@ export type HeatRiskAssessmentResponse = {
   fortyGuardDataUsed: boolean;
   environmentalAvailable: boolean;
   environmentalFailure: string | null;
+  environmentalFailureReason?: import("@/lib/environmental-failure").EnvironmentalFailureReasonCode;
   assessedAt: string;
   inputFingerprint: string;
   environmentalQuery: EnvironmentalQuery;

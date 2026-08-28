@@ -55,8 +55,8 @@ HeatSafe augments clinical judgment. It does **not** replace clinician oversight
 3. Use **Load Case A/B/C** to populate the full synthetic workflow in one click.
 4. Review **origin**, **journey** (transport + configured duration), and **destination**.
 5. Adjust patient, medication, and home/social factors as needed.
-6. Click **Run HeatSafe assessment** — verified environmental data returns instantly; uncached Arizona locations submit a real FortyGuard job and enter a transparent processing state.
-7. Review the **workflow prioritization score**, **FortyGuard environmental intelligence**, and **Why this score?** breakdown.
+6. Click **Run HeatSafe assessment** — verified historical snapshots return instantly for prepared Central Phoenix/Tucson demo windows; other supported Arizona locations submit a real FortyGuard job and enter a transparent processing state (with one expanded-AOI fallback when the initial hyperlocal request has no usable cells).
+7. Review the **workflow prioritization score**, **FortyGuard environmental intelligence** (including provenance, configured historical date/hour, and AOI metadata), and **Why this score?** breakdown.
 8. Work through **assigned discharge interventions** — update status from pending → in progress → completed.
 9. Review **HeatSafe-generated discharge considerations** and the safety/provenance panel.
 
@@ -72,7 +72,7 @@ HeatSafe augments clinical judgment. It does **not** replace clinician oversight
 
 | Data | Status |
 | --- | --- |
-| FortyGuard destination environmental temperature data | **Real** — verified historical seed for standardized cases; live async completion for uncached Arizona queries |
+| FortyGuard destination environmental temperature data | **Real** — verified historical snapshot for standardized Central Phoenix/Tucson cases; live async FortyGuard queries for other supported Arizona locations (with expanded-AOI fallback when needed) |
 | Transition exposure | **Deterministic workflow heuristic** — derived from destination heat + transport mode + configured duration |
 | Patient profiles (HS-001/002/003) | **Synthetic** |
 | Conditions, medications, home/social factors | **Synthetic / editable demo inputs** |
