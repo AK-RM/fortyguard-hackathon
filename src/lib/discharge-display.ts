@@ -50,11 +50,12 @@ export function getTopFlagReasons(
   contributions: ScoreContribution[],
   limit = 5
 ): string[] {
-  return contributions
+  const sorted = contributions
     .slice()
     .sort((left, right) => right.points - left.points)
-    .slice(0, limit)
     .map((item) => simplifyReasonLabel(item.label));
+
+  return dedupeFlagReasons(sorted).slice(0, limit);
 }
 
 function simplifyReasonLabel(label: string): string {

@@ -1,11 +1,19 @@
 # HeatSafe Discharge
 
-Heat-aware discharge coordination platform that combines real FortyGuard environmental data with patient vulnerability, medication factors, home/support conditions, and the hospital-to-home transition to help discharge teams prioritize safer post-hospital transitions.
+Heat-aware discharge coordination for **hospital and health-system discharge teams**. HeatSafe converts FortyGuard environmental intelligence with patient vulnerability, journey factors, and home support into transparent workflow priorities and owned discharge actions.
 
 **Live demo:** [fortyguard-hackathon.vercel.app](https://fortyguard-hackathon.vercel.app)  
 **Repository:** [github.com/AK-RM/fortyguard-hackathon](https://github.com/AK-RM/fortyguard-hackathon)  
 **Built for:** FortyGuard Hackathon '26  
 **Status:** Hackathon deployment — not clinically validated
+
+**Problem:** Discharge decisions can overlook destination heat, transport exposure, cooling access, and home support — even when a patient is clinically ready to leave the hospital.
+
+**Buyer / user:** Hospital or health-system discharge teams coordinating same-day and next-day transitions.
+
+**Differentiator:** HeatSafe evaluates heat at the patient's **destination** and **estimated arrival time**, not merely weather around the hospital.
+
+**Next proof:** A prospective hospital pilot measuring identified risks, action completion, utilisation, and ROI.
 
 ---
 
@@ -102,17 +110,22 @@ HeatSafe uses FortyGuard because:
 
 ## Environmental Data Architecture
 
-HeatSafe decouples environmental data acquisition from clinician-facing review. When a planned discharge destination and arrival window become available, FortyGuard environmental intelligence can be prepared asynchronously and stored with full provenance.
+HeatSafe decouples environmental data acquisition from clinician-facing review. FortyGuard requests run **server-side**; the application computes the **estimated destination-arrival time** and submits live heatmap jobs **asynchronously** when no verified snapshot applies.
 
-- **Verified cache hit:** If verified environmental data for the exact canonical query is already available, clinical assessment is immediate.
-- **Uncached Arizona query:** HeatSafe submits one real FortyGuard heatmap job, returns `processing` immediately, and the browser polls status every ~5 seconds while the case is open.
-- **Resume without duplicate jobs:** Pending `activityId` values persist in browser storage; reopening or refreshing resumes the same FortyGuard activity.
-- **Refresh from FortyGuard:** Explicitly bypasses cache for the same query while keeping the current verified result visible until a new live result completes.
-- **Stale input safety:** Fingerprint changes invalidate pending activities so old FortyGuard results cannot finalize the wrong patient/input set. Completed environmental data may still enter the cache for its exact query.
+- **Server-side FortyGuard calls:** The browser never holds the API key or submits heatmap jobs directly.
+- **Signed activity tokens:** After an async submit, the browser receives an HMAC-signed activity token — not a trusted environmental payload. Status polling must present that token; the server re-derives the original query and input fingerprint and rejects mismatches.
+- **Client cache is not trusted for scoring:** Browser-stored environmental cache entries are convenience only. `/api/heat-risk` ignores client-supplied cache data; only server-verified snapshots short-circuit scoring.
+- **Verified snapshot hit:** If a verified historical result matches the canonical query exactly, assessment completes immediately with provenance `verified_historical_snapshot`.
+- **Live async path:** Uncached Arizona queries submit one real FortyGuard job at a **400 m AOI**, return `processing` immediately, and the browser polls `/api/heat-risk/status` while the case is open.
+- **Controlled AOI fallback:** If a completed request contains no usable cells or statistics, one **1,600 m fallback** may occur around the same destination. A second expanded retry is rejected.
+- **Plausible statistics required:** Environmental results must contain usable temperature statistics. If usable data remains unavailable, HeatSafe produces **no heat-derived priority** rather than inventing values.
+- **Provenance labels:** Results are distinguished as `live_fortyguard`, `verified_historical_snapshot`, or `unavailable`.
+- **Refresh from FortyGuard:** Explicit refresh bypasses verified cache for the same query while keeping the current result visible until a new live result completes.
+- **Stale input safety:** Input fingerprint changes invalidate pending activities so old FortyGuard results cannot finalize the wrong patient/input set.
 
 Standardized demo cases **A/B/C** intentionally share one **verified historical FortyGuard result** for Central Phoenix (2026-08-18 14:00–15:00 local) so environmental exposure is controlled while patient vulnerability profiles remain distinct. A separate **Compare environmental exposure** panel on the dashboard holds an existing demo patient constant (automatically **HS-003 / Case C** when it produces the strongest legitimate workflow delta) and contrasts two verified FortyGuard snapshots for the same destination at different arrival-hour windows (14:00 vs 06:00 local). Arbitrary Arizona coordinates are **not** hardcoded and use the live async path.
 
-Cached verified data is never described as live. Numerical HeatSafe weights remain heuristic and are **not clinically calibrated**.
+Verified historical snapshots are **narrowly labelled** and are never described as live data. Numerical HeatSafe weights remain heuristic and are **not clinically calibrated**.
 
 A production hospital deployment would persist activities and environmental results server-side so multiple users and devices share them. This hackathon deployment uses browser persistence for workflow state.
 
@@ -121,16 +134,19 @@ A production hospital deployment would persist activities and environmental resu
 ```mermaid
 flowchart LR
     A[Discharge workspace] --> B[POST /api/heat-risk]
-    B --> C{Verified cache hit?}
+    B --> C{Verified snapshot hit?}
     C -->|Yes| D[Instant HeatSafe assessment]
-    C -->|No| E[POST FortyGuard heatmap]
-    E --> F[Return processing + activityId]
-    F --> G[Browser polls POST /api/heat-risk/status]
+    C -->|No| E[Server POST FortyGuard heatmap — 400 m AOI]
+    E --> F[Return processing + signed activityToken]
+    F --> G[Browser polls POST /api/heat-risk/status with token]
     G --> H{FortyGuard status}
-    H -->|Completed| I[Score + actions + cache result]
+    H -->|Completed + usable stats| I[Score + actions + provenance]
+    H -->|Completed + empty AOI| J[One 1,600 m fallback submit]
+    J --> G
     H -->|Processing| G
-    D --> J[localStorage workflow + cache]
-    I --> J
+    H -->|Still unusable| K[No heat-derived priority]
+    D --> L[localStorage workflow cache]
+    I --> L
 ```
 
 ### Key modules
@@ -145,13 +161,14 @@ flowchart LR
 | `src/lib/heat-discharge-risk.ts` | Weighted scoring engine with structured contributions |
 | `src/lib/discharge-actions.ts` | Action task creation and status updates |
 | `src/lib/discharge-storage.ts` | Browser localStorage persistence layer |
-| `src/app/api/heat-risk/route.ts` | Assessment submit: verified cache hit or async FortyGuard job |
+| `src/lib/activity-token.ts` | HMAC-signed activity tokens binding status checks to server queries |
+| `src/app/api/heat-risk/route.ts` | Assessment submit: verified snapshot hit or async FortyGuard job |
 | `src/lib/environmental-query.ts` | Canonical FortyGuard environmental query + cache key |
 | `src/lib/verified-environmental-seed.ts` | Verified historical FortyGuard results (Central Phoenix + Tucson) |
 | `src/lib/clinical-methodology.ts` | CDC/AHRQ/WHO rationale mapping for factors and actions |
 | `src/lib/environmental-comparison.ts` | Matched-patient environmental counterfactual logic |
 | `src/lib/environmental-cache.ts` | Verified + browser cache lookup/store helpers |
-| `src/app/api/heat-risk/status/route.ts` | One-check FortyGuard status + assessment finalization |
+| `src/app/api/heat-risk/status/route.ts` | Token-bound FortyGuard status check, AOI fallback, assessment finalization |
 
 ## Scoring Methodology
 
@@ -215,20 +232,24 @@ Implementation mapping: `src/lib/clinical-methodology.ts`.
 | Home / support | Lives alone | 10 |
 | Home / support | No reliable transport / no caregiver check-in | 10 each |
 
-## Early Clinician Workflow Evaluation
+## Early Clinician Usability Feedback
 
-Structured clinician review of standardized synthetic cases is **in progress**. The workspace shows **Clinician evaluation in progress** until real aggregate metrics exist. Metrics will be populated from actual validation sessions via `src/lib/clinician-validation.ts`:
+Eight physicians participated in a structured review of HeatSafe using **synthetic patient cases**. Each physician reviewed **three** standardized synthetic cases, producing **24 clinician–case reviews**. Each physician also completed **one** structured survey (**eight surveys total**, not 24).
 
-| Metric | Status |
+| Metric | Result |
 | --- | --- |
-| Number of clinicians | Evaluation in progress |
-| Standardized case reviews | Evaluation in progress |
-| % surfacing additional relevant consideration | Evaluation in progress |
-| % changing/reprioritizing an action | Evaluation in progress |
-| Mean actionability /5 | Evaluation in progress |
-| % supporting/considering pilot | Evaluation in progress |
+| Physicians | 8 |
+| Clinician–case reviews | 24 (8 × 3 synthetic cases) |
+| Structured surveys | 8 (one per physician) |
+| Mean recommendation usefulness | 4.6 / 5 |
+| Mean clinical sensibility | 4.8 / 5 |
+| Mean value added by environmental information | 4.6 / 5 |
+| Identified an additional consideration | 8 / 8 |
+| Said HeatSafe could realistically improve discharge planning | 7 / 8 |
 
-No clinician validation numbers are fabricated in this deployment.
+Frequently mentioned considerations included **air conditioning**, **transport**, and **temperature at discharge**. One physician specifically requested **one-click EHR integration** with recommendations carried into the discharge summary.
+
+This is **early usability evidence involving synthetic cases** — not clinical validation, an outcomes study, or evidence that HeatSafe reduces readmissions. Aggregate configuration lives in `src/lib/clinician-validation.ts`.
 
 ## Safety & Failure Modes
 
@@ -333,9 +354,10 @@ npm run test:heatmap
 
 ## AI Tools Used
 
-- **[Cursor](https://cursor.com)** — primary development environment for implementation, refactoring, test authoring, and documentation in this repository.
+- **[Cursor](https://cursor.com)** — implementation, refactoring, test authoring, and documentation in this repository.
+- **ChatGPT / Codex** — research synthesis, pitch development, presentation/script drafting, and final submission review.
 
-No specific underlying AI model names are claimed beyond Cursor as the development tool used during the hackathon build.
+Product decisions and final claims were reviewed by the participant. AI tools did **not** independently conduct the physician reviews.
 
 ## Local Development
 
@@ -343,6 +365,7 @@ No specific underlying AI model names are claimed beyond Cursor as the developme
 
 - Node.js 20.9+
 - FortyGuard API key with Arizona coverage
+- Local signing secret for activity tokens (`HEATSAFE_STATE_SIGNING_SECRET`)
 
 ### Setup
 
@@ -351,7 +374,24 @@ git clone https://github.com/AK-RM/fortyguard-hackathon.git
 cd fortyguard-hackathon
 npm install
 cp .env.example .env
-# Add FORTYGUARD_API_KEY to .env (server-side only — never commit)
+```
+
+Add both required variables to `.env` (server-side only — never commit):
+
+```env
+FORTYGUARD_API_KEY=
+HEATSAFE_STATE_SIGNING_SECRET=
+```
+
+Generate a signing secret locally:
+
+```bash
+openssl rand -base64 32
+```
+
+Copy the generated value into `HEATSAFE_STATE_SIGNING_SECRET`, **including any trailing `=` characters**. Then start the dev server:
+
+```bash
 npm run dev
 ```
 
@@ -370,12 +410,16 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ## Known Limitations
 
-- Workflow prioritization score is **not clinically validated** and does **not** represent readmission, mortality, or cost outcomes.
+- **Synthetic cases only** — HS-001/002/003 are demo patients, not real clinical records.
+- Workflow prioritization score is **experimental and not clinically validated**; it does **not** represent readmission, mortality, or cost outcomes.
+- The physician exercise is **early usability evidence**, not evidence of improved outcomes.
+- HeatSafe has **not** demonstrated reduced readmissions or financial savings.
+- Production adoption would require **prospective validation**, clinical governance, privacy/security review, and EHR integration.
+- Verified historical snapshots are **narrowly labelled** and are not presented as live environmental data.
 - Hackathon deployment supports **Arizona coordinates only**.
 - **One FortyGuard destination query** per assessment; transition exposure is a transparent heuristic, not a second environmental observation.
 - Journey duration is **user-configured**, not derived from a routing provider.
 - Workflow persistence uses **browser localStorage** — not suitable for production multi-user deployment without a backend.
-- Clinician validation metrics are **not yet populated**.
 
 ## What This Is Not
 

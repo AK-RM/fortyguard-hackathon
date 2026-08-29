@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { getTopFlagReasons } from "@/lib/discharge-display";
 import {
   buildActionTriggerContextFromRecord,
   getActionTriggeredBy,
@@ -142,5 +143,49 @@ describe("environmental comparison regression", () => {
     expect(comparison.scenarioA.priority).toBe("enhanced");
     expect(comparison.scenarioB.priority).toBe("routine");
     expect(comparison.deltas.priorityChanged).toBe(true);
+  });
+});
+
+describe("flag reason display", () => {
+  it("deduplicates simplified destination heat labels in HS-001-style assessments", () => {
+    const result = evaluateHeatDischargeRisk({
+      environmental: {
+        destination: { meanTemperature: 41.6, maximumTemperature: 41.6 },
+        transition: { points: 9, label: "Public bus", explanation: "Test" },
+      },
+      patient: {
+        age: 78,
+        cardiovascularDisease: false,
+        heartFailure: true,
+        kidneyDisease: true,
+        respiratoryDisease: false,
+        diabetes: false,
+        cognitiveImpairment: false,
+        limitedMobility: false,
+      },
+      medications: {
+        diuretic: true,
+        aceArbArni: false,
+        betaBlocker: false,
+        anticholinergic: false,
+        psychotropic: false,
+        lithium: false,
+        nsaid: false,
+      },
+      homeSocial: {
+        workingAirConditioning: false,
+        livesAlone: true,
+        reliableTransport: true,
+        caregiverCheckInAvailable: false,
+        powerDependentMedicalEquipment: false,
+      },
+    });
+
+    const reasons = getTopFlagReasons(result.contributions);
+    const highDestinationHeatCount = reasons.filter(
+      (reason) => reason === "High destination heat"
+    ).length;
+
+    expect(highDestinationHeatCount).toBeLessThanOrEqual(1);
   });
 });

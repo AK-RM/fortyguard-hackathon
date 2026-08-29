@@ -203,9 +203,12 @@ describe("regression safeguards", () => {
     expect(isEnvironmentalRefreshCurrent(refreshing)).toBe(true);
   });
 
-  it("shows honest clinician validation empty state", () => {
-    expect(CLINICIAN_VALIDATION.status).toBe("evaluation_in_progress");
-    expect(CLINICIAN_VALIDATION.metrics.clinicianCount).toBeNull();
-    expect(CLINICIAN_VALIDATION.emptyStateLabel).toMatch(/in progress/i);
+  it("shows completed clinician usability evidence", () => {
+    expect(CLINICIAN_VALIDATION.status).toBe("completed");
+    expect(CLINICIAN_VALIDATION.metrics.clinicianCount).toBe(8);
+    expect(CLINICIAN_VALIDATION.metrics.caseReviewCount).toBe(24);
+    expect(CLINICIAN_VALIDATION.metrics.meanActionabilityOutOfFive).toBe(4.6);
+    expect(CLINICIAN_VALIDATION.summary).toMatch(/early usability evidence/i);
+    expect(CLINICIAN_VALIDATION.summary).not.toMatch(/in progress/i);
   });
 });
