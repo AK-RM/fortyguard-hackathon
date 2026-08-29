@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 
 import {
+  ActivityTokenConfigError,
+  assertActivityTokenMatchesAssessment,
+  signActivityToken,
+  verifyActivityToken,
+} from "@/lib/activity-token";
+import {
   buildCompletedHeatRiskAssessment,
   buildEnvironmentalUnavailableAssessment,
 } from "@/lib/assessment-orchestration";
@@ -11,6 +17,7 @@ import {
   mapFortyGuardErrorKindToReasonCode,
 } from "@/lib/environmental-failure";
 import { validateEnvironmentalQueryDatetime } from "@/lib/environmental-datetime-validation";
+import { buildEnvironmentalQueryFromDischarge } from "@/lib/environmental-query";
 import {
   FortyGuardError,
   checkHeatmapStatusOnce,
@@ -27,12 +34,11 @@ function parseStatusRequest(body: unknown): HeatRiskStatusRequest | { error: str
     return { error: "Request body must be an object." };
   }
 
-  const payload = body as Partial<HeatRiskStatusRequest>;
+  const payload = body as Partial<HeatRiskStatusRequest> & Record<string, unknown>;
 
-  if (!payload.request || !payload.activityId || !payload.environmentalQuery) {
+  if (!payload.request || typeof payload.activityToken !== "string") {
     return {
-      error:
-        "activityId, environmentalQuery, and the original HeatSafe request are required.",
+      error: "activityToken and the original HeatSafe request are required.",
     };
   }
 
@@ -42,22 +48,9 @@ function parseStatusRequest(body: unknown): HeatRiskStatusRequest | { error: str
     return parsedRequest;
   }
 
-  const inputFingerprint = fingerprintFromRequest(parsedRequest);
-
-  if (
-    payload.inputFingerprint &&
-    payload.inputFingerprint !== inputFingerprint
-  ) {
-    return {
-      error: "Input fingerprint does not match the current request snapshot.",
-    };
-  }
-
   return {
     request: parsedRequest,
-    activityId: payload.activityId,
-    inputFingerprint,
-    environmentalQuery: payload.environmentalQuery,
+    activityToken: payload.activityToken,
     isRefresh: payload.isRefresh === true,
   };
 }
@@ -80,15 +73,40 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: parsed.error }, { status: 400 });
   }
 
+  const verifiedToken = verifyActivityToken(parsed.activityToken);
+
+  if (!verifiedToken.ok) {
+    return NextResponse.json({ error: verifiedToken.reason }, { status: 400 });
+  }
+
+  const environmentalQuery = buildEnvironmentalQueryFromDischarge(
+    parsed.request.destination,
+    parsed.request.journey,
+    { aoiSideMeters: verifiedToken.payload.aoiSideMeters }
+  );
+  const inputFingerprint = fingerprintFromRequest(parsed.request);
+  const tokenMatch = assertActivityTokenMatchesAssessment({
+    payload: verifiedToken.payload,
+    environmentalQuery,
+    inputFingerprint,
+  });
+
+  if (!tokenMatch.ok) {
+    return NextResponse.json({ error: tokenMatch.reason }, { status: 400 });
+  }
+
+  const activityId = verifiedToken.payload.activityId;
+
   try {
-    const statusCheck = await checkHeatmapStatusOnce(parsed.activityId);
+    const statusCheck = await checkHeatmapStatusOnce(activityId);
 
     if (statusCheck.processing) {
       const response: HeatRiskStatusResponse = {
         status: "processing",
-        activityId: parsed.activityId,
-        environmentalQuery: parsed.environmentalQuery,
-        inputFingerprint: parsed.inputFingerprint,
+        activityToken: parsed.activityToken,
+        activityId,
+        environmentalQuery,
+        inputFingerprint,
         submittedAt: new Date().toISOString(),
         isRefresh: parsed.isRefresh === true,
       };
@@ -100,7 +118,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         buildEnvironmentalUnavailableAssessment({
           parsed: parsed.request,
-          environmentalQuery: parsed.environmentalQuery,
+          environmentalQuery,
           environmentalFailureReason: "upstream_failed",
           environmentalFailure: getEnvironmentalFailureMessage("upstream_failed"),
         })
@@ -108,12 +126,23 @@ export async function POST(request: Request) {
     }
 
     const acquisition = acquireCompletedEnvironmentalData({
-      activityId: parsed.activityId,
-      query: parsed.environmentalQuery,
+      activityId,
+      query: environmentalQuery,
       statusCheck,
     });
 
     if (acquisition.kind === "retry_expanded") {
+      if (verifiedToken.payload.retryCount >= 1) {
+        return NextResponse.json(
+          buildEnvironmentalUnavailableAssessment({
+            parsed: parsed.request,
+            environmentalQuery,
+            environmentalFailureReason: "empty_expanded_aoi",
+            environmentalFailure: getEnvironmentalFailureMessage("empty_expanded_aoi"),
+          })
+        );
+      }
+
       const datetimeValidation = validateEnvironmentalQueryDatetime({
         journey: parsed.request.journey,
       });
@@ -122,7 +151,7 @@ export async function POST(request: Request) {
         return NextResponse.json(
           buildEnvironmentalUnavailableAssessment({
             parsed: parsed.request,
-            environmentalQuery: parsed.environmentalQuery,
+            environmentalQuery,
             environmentalFailureReason: datetimeValidation.reasonCode,
             environmentalFailure: datetimeValidation.message,
           })
@@ -130,12 +159,19 @@ export async function POST(request: Request) {
       }
 
       const fallbackActivityId = await submitHeatmapJobForQuery(acquisition.expandedQuery);
+      const fallbackToken = signActivityToken({
+        activityId: fallbackActivityId,
+        environmentalQuery: acquisition.expandedQuery,
+        inputFingerprint,
+        retryCount: 1,
+      });
 
       const response: HeatRiskStatusResponse = {
         status: "processing",
+        activityToken: fallbackToken,
         activityId: fallbackActivityId,
         environmentalQuery: acquisition.expandedQuery,
-        inputFingerprint: parsed.inputFingerprint,
+        inputFingerprint,
         submittedAt: new Date().toISOString(),
         isRefresh: parsed.isRefresh === true,
       };
@@ -147,7 +183,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         buildEnvironmentalUnavailableAssessment({
           parsed: parsed.request,
-          environmentalQuery: parsed.environmentalQuery,
+          environmentalQuery,
           environmentalFailureReason: acquisition.reasonCode,
           environmentalFailure: getEnvironmentalFailureMessage(acquisition.reasonCode),
         })
@@ -157,11 +193,18 @@ export async function POST(request: Request) {
     return NextResponse.json(
       buildCompletedHeatRiskAssessment({
         parsed: parsed.request,
-        environmentalQuery: parsed.environmentalQuery,
+        environmentalQuery,
         environmentalResult: acquisition.result,
       })
     );
   } catch (error) {
+    if (error instanceof ActivityTokenConfigError) {
+      return NextResponse.json(
+        { error: "Heat risk service is not configured." },
+        { status: 503 }
+      );
+    }
+
     if (error instanceof FortyGuardError) {
       console.error("[heat-risk/status]", error.message);
 
@@ -177,7 +220,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         buildEnvironmentalUnavailableAssessment({
           parsed: parsed.request,
-          environmentalQuery: parsed.environmentalQuery,
+          environmentalQuery,
           environmentalFailureReason: reasonCode,
           environmentalFailure: getEnvironmentalFailureMessage(reasonCode),
         })

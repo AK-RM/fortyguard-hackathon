@@ -7,18 +7,46 @@ import { lookupVerifiedEnvironmentalResult } from "./verified-environmental-seed
 
 export type EnvironmentalCacheStore = Record<string, EnvironmentalResult>;
 
-export function lookupEnvironmentalResult(
-  query: EnvironmentalQuery,
-  clientCache: EnvironmentalCacheStore = {}
-): EnvironmentalResult | null {
-  const verified = lookupVerifiedEnvironmentalResult(query);
+export const ENVIRONMENTAL_CACHE_SCHEMA_VERSION = 2;
 
-  if (verified) {
-    return verified;
+export type VersionedEnvironmentalCacheStore = {
+  version: typeof ENVIRONMENTAL_CACHE_SCHEMA_VERSION;
+  entries: EnvironmentalCacheStore;
+};
+
+export function createEmptyEnvironmentalCacheStore(): VersionedEnvironmentalCacheStore {
+  return {
+    version: ENVIRONMENTAL_CACHE_SCHEMA_VERSION,
+    entries: {},
+  };
+}
+
+export function normalizeEnvironmentalCacheStore(
+  value: unknown
+): VersionedEnvironmentalCacheStore {
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    "version" in value &&
+    (value as VersionedEnvironmentalCacheStore).version ===
+      ENVIRONMENTAL_CACHE_SCHEMA_VERSION &&
+    "entries" in value &&
+    typeof (value as VersionedEnvironmentalCacheStore).entries === "object" &&
+    (value as VersionedEnvironmentalCacheStore).entries !== null
+  ) {
+    return value as VersionedEnvironmentalCacheStore;
   }
 
+  return createEmptyEnvironmentalCacheStore();
+}
+
+export function lookupDisplayEnvironmentalResult(
+  query: EnvironmentalQuery,
+  clientCache: VersionedEnvironmentalCacheStore = createEmptyEnvironmentalCacheStore()
+): EnvironmentalResult | null {
   const key = buildEnvironmentalQueryKey(query);
-  const cached = clientCache[key];
+  const cached = clientCache.entries[key];
 
   if (cached?.status === "completed") {
     return cached;
@@ -27,14 +55,24 @@ export function lookupEnvironmentalResult(
   return null;
 }
 
+export function lookupEnvironmentalResult(
+  query: EnvironmentalQuery,
+  _clientCache: EnvironmentalCacheStore = {}
+): EnvironmentalResult | null {
+  return lookupVerifiedEnvironmentalResult(query);
+}
+
 export function storeEnvironmentalResultInCache(
-  cache: EnvironmentalCacheStore,
+  cache: VersionedEnvironmentalCacheStore,
   result: EnvironmentalResult
-): EnvironmentalCacheStore {
+): VersionedEnvironmentalCacheStore {
   const key = buildEnvironmentalQueryKey(result.query);
 
   return {
-    ...cache,
-    [key]: result,
+    version: ENVIRONMENTAL_CACHE_SCHEMA_VERSION,
+    entries: {
+      ...cache.entries,
+      [key]: result,
+    },
   };
 }

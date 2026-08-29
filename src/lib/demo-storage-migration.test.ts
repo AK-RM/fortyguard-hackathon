@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { signActivityToken } from "@/lib/activity-token";
 import { buildCompletedHeatRiskAssessment } from "@/lib/assessment-orchestration";
 import {
   DEMO_CASE_A,
@@ -24,8 +25,9 @@ import {
   isPendingAssessmentCurrent,
   updateAssessmentInputs,
 } from "@/lib/discharge-record-state";
-import { createInitialPersistedState, summarizeDischargeRecord } from "@/lib/discharge-storage";
+import { createInitialPersistedState, STORAGE_VERSION, summarizeDischargeRecord } from "@/lib/discharge-storage";
 import type { PersistedDischargeState } from "@/lib/discharge-storage";
+import { createEmptyEnvironmentalCacheStore } from "@/lib/environmental-cache";
 import {
   buildEnvironmentalQueryFromDischarge,
   buildEnvironmentalQueryKey,
@@ -37,6 +39,32 @@ import {
   lookupVerifiedEnvironmentalResult,
 } from "@/lib/verified-environmental-seed";
 import type { DischargeRecord } from "@/types/discharge-workflow";
+import type { EnvironmentalQuery } from "@/lib/environmental-query";
+
+function buildSignedPendingAssessment(params: {
+  activityId: string;
+  environmentalQuery: EnvironmentalQuery;
+  inputFingerprint: string;
+  submittedAt: string;
+}) {
+  return {
+    ...params,
+    activityToken: signActivityToken({
+      activityId: params.activityId,
+      environmentalQuery: params.environmentalQuery,
+      inputFingerprint: params.inputFingerprint,
+    }),
+  };
+}
+
+function buildSignedEnvironmentalRefresh(params: {
+  activityId: string;
+  environmentalQuery: EnvironmentalQuery;
+  inputFingerprint: string;
+  submittedAt: string;
+}) {
+  return buildSignedPendingAssessment(params);
+}
 
 function buildOldMesaRecord(demoCase: typeof DEMO_CASE_B): DischargeRecord {
   const base = createDischargeRecordFromDemoCase(demoCase);
@@ -49,7 +77,7 @@ function buildOldMesaRecord(demoCase: typeof DEMO_CASE_B): DischargeRecord {
   return {
     ...base,
     destination: mesaDestination,
-    pendingAssessment: {
+    pendingAssessment: buildSignedPendingAssessment({
       activityId: "227251d7-8807-4a2f-a28c-9c537c67c8e3",
       environmentalQuery: buildEnvironmentalQueryFromDischarge(
         mesaDestination,
@@ -60,7 +88,7 @@ function buildOldMesaRecord(demoCase: typeof DEMO_CASE_B): DischargeRecord {
         destination: mesaDestination,
       }),
       submittedAt: "2026-08-18T14:00:00.000Z",
-    },
+    }),
     assessmentStatus: "processing",
   };
 }
@@ -140,12 +168,12 @@ describe("demo storage migration", () => {
     };
 
     const state: PersistedDischargeState = {
-      version: 2,
+      version: STORAGE_VERSION,
       demoDataVersion: 0,
       discharges: {
         "HS-099": userRecord,
       },
-      environmentalCache: {},
+      environmentalCache: createEmptyEnvironmentalCacheStore(),
     };
 
     const migrated = migratePersistedState(state, 0);
@@ -227,12 +255,12 @@ describe("environmental refresh state model", () => {
       fingerprint
     );
 
-    const refreshing = applyEnvironmentalRefresh(assessed, {
+    const refreshing = applyEnvironmentalRefresh(assessed, buildSignedEnvironmentalRefresh({
       activityId: "refresh-activity-456",
       environmentalQuery: VERIFIED_CENTRAL_PHOENIX_QUERY,
       inputFingerprint: fingerprint,
       submittedAt: "2026-08-18T14:05:00.000Z",
-    });
+    }));
 
     expect(refreshing.assessmentStatus).toBe("assessed");
     expect(isAssessmentCurrent(refreshing)).toBe(true);
@@ -245,12 +273,12 @@ describe("environmental refresh state model", () => {
     const base = createDischargeRecordFromDemoCase(DEMO_CASE_A);
     const fingerprint = computeAssessmentInputFingerprint(base);
 
-    const processing = applyProcessingAssessment(base, {
+    const processing = applyProcessingAssessment(base, buildSignedPendingAssessment({
       activityId: "initial-activity",
       environmentalQuery: VERIFIED_CENTRAL_PHOENIX_QUERY,
       inputFingerprint: fingerprint,
       submittedAt: "2026-08-18T14:00:00.000Z",
-    });
+    }));
 
     expect(processing.pendingAssessment?.activityId).toBe("initial-activity");
     expect(processing.environmentalRefresh).toBeNull();
@@ -273,12 +301,12 @@ describe("environmental refresh state model", () => {
       "2026-08-18T14:00:00.000Z",
       fingerprint
     );
-    const refreshing = applyEnvironmentalRefresh(assessed, {
+    const refreshing = applyEnvironmentalRefresh(assessed, buildSignedEnvironmentalRefresh({
       activityId: "refresh-activity-456",
       environmentalQuery: VERIFIED_CENTRAL_PHOENIX_QUERY,
       inputFingerprint: fingerprint,
       submittedAt: "2026-08-18T14:05:00.000Z",
-    });
+    }));
 
     const summary = summarizeDischargeRecord(refreshing);
 
@@ -298,12 +326,12 @@ describe("environmental refresh state model", () => {
       "2026-08-18T14:00:00.000Z",
       fingerprint
     );
-    const refreshing = applyEnvironmentalRefresh(assessed, {
+    const refreshing = applyEnvironmentalRefresh(assessed, buildSignedEnvironmentalRefresh({
       activityId: "refresh-activity-456",
       environmentalQuery: VERIFIED_CENTRAL_PHOENIX_QUERY,
       inputFingerprint: fingerprint,
       submittedAt: "2026-08-18T14:05:00.000Z",
-    });
+    }));
 
     const reopened = { ...refreshing };
 
@@ -315,12 +343,12 @@ describe("environmental refresh state model", () => {
   it("marks reassessment required when inputs change during initial processing", () => {
     const base = createDischargeRecordFromDemoCase(DEMO_CASE_B);
     const fingerprint = computeAssessmentInputFingerprint(base);
-    const processing = applyProcessingAssessment(base, {
+    const processing = applyProcessingAssessment(base, buildSignedPendingAssessment({
       activityId: "initial-activity",
       environmentalQuery: VERIFIED_CENTRAL_PHOENIX_QUERY,
       inputFingerprint: fingerprint,
       submittedAt: "2026-08-18T14:00:00.000Z",
-    });
+    }));
 
     const changed = updateAssessmentInputs(processing, {
       profile: {
@@ -345,12 +373,12 @@ describe("environmental refresh state model", () => {
       assessedAt: "2026-08-18T14:00:00.000Z",
     };
 
-    const retrying = applyProcessingAssessment(failed, {
+    const retrying = applyProcessingAssessment(failed, buildSignedPendingAssessment({
       activityId: "retry-activity",
       environmentalQuery: VERIFIED_CENTRAL_PHOENIX_QUERY,
       inputFingerprint: computeAssessmentInputFingerprint(base),
       submittedAt: "2026-08-18T14:10:00.000Z",
-    });
+    }));
 
     expect(retrying.environmentalFailure).toBeNull();
     expect(retrying.assessmentStatus).toBe("processing");
@@ -370,12 +398,12 @@ describe("environmental refresh state model", () => {
       "2026-08-18T14:00:00.000Z",
       fingerprint
     );
-    const refreshing = applyEnvironmentalRefresh(assessed, {
+    const refreshing = applyEnvironmentalRefresh(assessed, buildSignedEnvironmentalRefresh({
       activityId: "refresh-activity-456",
       environmentalQuery: VERIFIED_CENTRAL_PHOENIX_QUERY,
       inputFingerprint: fingerprint,
       submittedAt: "2026-08-18T14:05:00.000Z",
-    });
+    }));
 
     const refreshed = applySuccessfulAssessment(
       refreshing,
@@ -407,12 +435,12 @@ describe("environmental refresh state model", () => {
       "2026-08-18T14:00:00.000Z",
       fingerprint
     );
-    const refreshing = applyEnvironmentalRefresh(assessed, {
+    const refreshing = applyEnvironmentalRefresh(assessed, buildSignedEnvironmentalRefresh({
       activityId: "refresh-activity-456",
       environmentalQuery: VERIFIED_CENTRAL_PHOENIX_QUERY,
       inputFingerprint: fingerprint,
       submittedAt: "2026-08-18T14:05:00.000Z",
-    });
+    }));
 
     const failed = applyEnvironmentalRefreshFailure(
       refreshing,
@@ -438,12 +466,12 @@ describe("environmental refresh state model", () => {
       "2026-08-18T14:00:00.000Z",
       fingerprint
     );
-    const refreshing = applyEnvironmentalRefresh(assessed, {
+    const refreshing = applyEnvironmentalRefresh(assessed, buildSignedEnvironmentalRefresh({
       activityId: "refresh-activity-456",
       environmentalQuery: VERIFIED_CENTRAL_PHOENIX_QUERY,
       inputFingerprint: fingerprint,
       submittedAt: "2026-08-18T14:05:00.000Z",
-    });
+    }));
 
     const changed = updateAssessmentInputs(refreshing, {
       profile: {

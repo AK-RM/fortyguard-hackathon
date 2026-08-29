@@ -232,21 +232,13 @@ export function useEnvironmentalAssessment(params: {
         return;
       }
 
-      const activityId = isRefresh
-        ? record.environmentalRefresh!.activityId
-        : record.pendingAssessment!.activityId;
-      const inputFingerprint = isRefresh
-        ? record.environmentalRefresh!.inputFingerprint
-        : record.pendingAssessment!.inputFingerprint;
-      const environmentalQuery = isRefresh
-        ? record.environmentalRefresh!.environmentalQuery
-        : record.pendingAssessment!.environmentalQuery;
+      const activityToken = isRefresh
+        ? record.environmentalRefresh!.activityToken
+        : record.pendingAssessment!.activityToken;
 
       const statusRequest: HeatRiskStatusRequest = {
         request: buildRequest(record),
-        activityId,
-        inputFingerprint,
-        environmentalQuery,
+        activityToken,
         isRefresh,
       };
 
@@ -264,19 +256,30 @@ export function useEnvironmentalAssessment(params: {
         }
 
         if (isProcessingResponse(data)) {
-          const pendingChanged =
-            data.activityId !== activityId ||
-            data.environmentalQuery.aoiSideMeters !== environmentalQuery.aoiSideMeters;
+          const pendingChanged = data.activityToken !== activityToken;
 
           if (pendingChanged) {
-            persistRecord(
-              applyProcessingAssessment(record, {
-                activityId: data.activityId,
-                environmentalQuery: data.environmentalQuery,
-                inputFingerprint: data.inputFingerprint,
-                submittedAt: data.submittedAt,
-              })
-            );
+            if (data.isRefresh && isAssessmentCurrent(record)) {
+              persistRecord(
+                applyEnvironmentalRefresh(record, {
+                  activityToken: data.activityToken,
+                  activityId: data.activityId,
+                  environmentalQuery: data.environmentalQuery,
+                  inputFingerprint: data.inputFingerprint,
+                  submittedAt: data.submittedAt,
+                })
+              );
+            } else {
+              persistRecord(
+                applyProcessingAssessment(record, {
+                  activityToken: data.activityToken,
+                  activityId: data.activityId,
+                  environmentalQuery: data.environmentalQuery,
+                  inputFingerprint: data.inputFingerprint,
+                  submittedAt: data.submittedAt,
+                })
+              );
+            }
           }
 
           return;
@@ -372,7 +375,6 @@ export function useEnvironmentalAssessment(params: {
 
       const request = {
         ...buildRequest(activeRecord),
-        clientEnvironmentalCache: state.environmentalCache,
         ...(options?.forceRefresh ? { forceRefresh: true } : {}),
       };
 
@@ -406,6 +408,7 @@ export function useEnvironmentalAssessment(params: {
           if (data.isRefresh && isAssessmentCurrent(activeRecord)) {
             persistRecord(
               applyEnvironmentalRefresh(activeRecord, {
+                activityToken: data.activityToken,
                 activityId: data.activityId,
                 environmentalQuery: data.environmentalQuery,
                 inputFingerprint: data.inputFingerprint,
@@ -415,6 +418,7 @@ export function useEnvironmentalAssessment(params: {
           } else {
             persistRecord(
               applyProcessingAssessment(activeRecord, {
+                activityToken: data.activityToken,
                 activityId: data.activityId,
                 environmentalQuery: data.environmentalQuery,
                 inputFingerprint: data.inputFingerprint,

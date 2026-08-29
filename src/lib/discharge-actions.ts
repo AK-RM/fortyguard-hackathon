@@ -1,6 +1,26 @@
 import type { DischargeAction, SuggestedOwner } from "@/lib/heat-discharge-risk";
 import type { DischargeActionTask } from "@/types/discharge-workflow";
 
+export const MAX_ACTION_NOTE_LENGTH = 2000;
+
+export function sanitizeActionNoteDraft(note: string): string {
+  if (note.length <= MAX_ACTION_NOTE_LENGTH) {
+    return note;
+  }
+
+  return note.slice(0, MAX_ACTION_NOTE_LENGTH);
+}
+
+export function normalizeActionNoteForSave(note: string): string | undefined {
+  const trimmed = note.trim();
+
+  if (!trimmed) {
+    return undefined;
+  }
+
+  return trimmed.slice(0, MAX_ACTION_NOTE_LENGTH);
+}
+
 export function createActionTasksFromRecommendations(
   recommendedActions: DischargeAction[],
   createdAt = new Date().toISOString()
@@ -88,8 +108,22 @@ export function updateActionNote(
   actionId: string,
   note: string
 ): DischargeActionTask[] {
+  const draft = sanitizeActionNoteDraft(note);
+
   return actions.map((action) =>
-    action.id === actionId ? { ...action, note: note.trim() || undefined } : action
+    action.id === actionId ? { ...action, note: draft || undefined } : action
+  );
+}
+
+export function finalizeActionNote(
+  actions: DischargeActionTask[],
+  actionId: string,
+  note: string
+): DischargeActionTask[] {
+  const normalized = normalizeActionNoteForSave(note);
+
+  return actions.map((action) =>
+    action.id === actionId ? { ...action, note: normalized } : action
   );
 }
 

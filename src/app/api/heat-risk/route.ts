@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
 
 import {
+  ActivityTokenConfigError,
+  signActivityToken,
+} from "@/lib/activity-token";
+import {
   buildCompletedHeatRiskAssessment,
   buildEnvironmentalUnavailableAssessment,
 } from "@/lib/assessment-orchestration";
 import { fingerprintFromRequest } from "@/lib/discharge-record-state";
-import { lookupEnvironmentalResult } from "@/lib/environmental-cache";
 import {
   getEnvironmentalFailureMessage,
   mapFortyGuardErrorKindToReasonCode,
@@ -14,6 +17,7 @@ import { buildEnvironmentalQueryFromDischarge } from "@/lib/environmental-query"
 import { validateEnvironmentalQueryDatetime } from "@/lib/environmental-datetime-validation";
 import { FortyGuardError, submitHeatmapJobForQuery } from "@/lib/fortyguard";
 import { parseHeatRiskRequest } from "@/lib/parse-heat-risk-request";
+import { lookupVerifiedEnvironmentalResult } from "@/lib/verified-environmental-seed";
 
 export async function POST(request: Request) {
   let body: unknown;
@@ -57,26 +61,30 @@ export async function POST(request: Request) {
     }
 
     if (!forceRefresh) {
-      const cachedResult = lookupEnvironmentalResult(
-        environmentalQuery,
-        parsed.clientEnvironmentalCache ?? {}
-      );
+      const verifiedResult = lookupVerifiedEnvironmentalResult(environmentalQuery);
 
-      if (cachedResult) {
+      if (verifiedResult) {
         return NextResponse.json(
           buildCompletedHeatRiskAssessment({
             parsed,
             environmentalQuery,
-            environmentalResult: cachedResult,
+            environmentalResult: verifiedResult,
           })
         );
       }
     }
 
     const activityId = await submitHeatmapJobForQuery(environmentalQuery);
+    const activityToken = signActivityToken({
+      activityId,
+      environmentalQuery,
+      inputFingerprint,
+      retryCount: 0,
+    });
 
     return NextResponse.json({
       status: "processing",
+      activityToken,
       activityId,
       environmentalQuery,
       inputFingerprint,
@@ -84,6 +92,13 @@ export async function POST(request: Request) {
       isRefresh: forceRefresh,
     });
   } catch (error) {
+    if (error instanceof ActivityTokenConfigError) {
+      return NextResponse.json(
+        { error: "Heat risk service is not configured." },
+        { status: 503 }
+      );
+    }
+
     if (error instanceof FortyGuardError) {
       console.error("[heat-risk]", error.message);
 

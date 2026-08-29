@@ -91,14 +91,14 @@ describe("parseHeatRiskRequest", () => {
         ...VALID_BASE_REQUEST,
         patient: { ...VALID_BASE_REQUEST.patient, age: -1 },
       })
-    ).toEqual({ error: "patient.age must be between 0 and 120." });
+    ).toEqual({ error: "patient.age must be an integer between 0 and 120." });
 
     expect(
       parseHeatRiskRequest({
         ...VALID_BASE_REQUEST,
         patient: { ...VALID_BASE_REQUEST.patient, age: 121 },
       })
-    ).toEqual({ error: "patient.age must be between 0 and 120." });
+    ).toEqual({ error: "patient.age must be an integer between 0 and 120." });
 
     expect(
       parseHeatRiskRequest({

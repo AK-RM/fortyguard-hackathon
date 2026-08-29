@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { signActivityToken } from "@/lib/activity-token";
 import {
   ACTION_METHODOLOGY,
   CLINICAL_METHODOLOGY_DISCLAIMER,
@@ -187,6 +188,11 @@ describe("regression safeguards", () => {
       fingerprint
     );
     const refreshing = applyEnvironmentalRefresh(assessed, {
+      activityToken: signActivityToken({
+        activityId: "refresh-123",
+        environmentalQuery: VERIFIED_CENTRAL_PHOENIX_QUERY,
+        inputFingerprint: fingerprint,
+      }),
       activityId: "refresh-123",
       environmentalQuery: VERIFIED_CENTRAL_PHOENIX_QUERY,
       inputFingerprint: fingerprint,

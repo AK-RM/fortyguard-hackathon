@@ -1,7 +1,5 @@
 import { isSupportedArizonaLocation, ARIZONA_COVERAGE_ERROR } from "@/lib/arizona-locations";
 import { isValidIanaTimeZone } from "@/lib/discharge-timezone";
-import type { EnvironmentalCacheStore } from "@/lib/environmental-cache";
-import type { EnvironmentalResult } from "@/lib/environmental-result";
 import type {
   HomeSocialInput,
   MedicationRiskInput,
@@ -53,25 +51,21 @@ const HOME_SOCIAL_FIELDS = [
 
 export type ParsedHeatRiskRequest = HeatRiskAssessmentRequest | { error: string };
 
-function parseClientEnvironmentalCache(
-  value: unknown
-): EnvironmentalCacheStore | undefined {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return undefined;
+function parseStrictInteger(
+  value: unknown,
+  fieldName: string,
+  min: number,
+  max: number
+): number | { error: string } {
+  if (typeof value !== "number" || !Number.isFinite(value) || !Number.isInteger(value)) {
+    return { error: `${fieldName} must be an integer between ${min} and ${max}.` };
   }
 
-  const entries = Object.entries(value as Record<string, unknown>);
-  const cache: EnvironmentalCacheStore = {};
-
-  for (const [key, item] of entries) {
-    if (typeof item !== "object" || item === null || Array.isArray(item)) {
-      continue;
-    }
-
-    cache[key] = item as EnvironmentalResult;
+  if (value < min || value > max) {
+    return { error: `${fieldName} must be an integer between ${min} and ${max}.` };
   }
 
-  return cache;
+  return value;
 }
 
 function parseStrictBoolean(
@@ -198,15 +192,15 @@ function parseJourney(value: unknown): DischargeJourney | { error: string } {
     return { error: "journey.transportMode must be a supported transport mode." };
   }
 
-  if (
-    typeof record.durationMinutes !== "number" ||
-    !Number.isFinite(record.durationMinutes) ||
-    record.durationMinutes <= 0 ||
-    record.durationMinutes > 480
-  ) {
-    return {
-      error: "journey.durationMinutes must be a finite number between 1 and 480.",
-    };
+  const parsedDuration = parseStrictInteger(
+    record.durationMinutes,
+    "journey.durationMinutes",
+    1,
+    480
+  );
+
+  if (typeof parsedDuration === "object") {
+    return parsedDuration;
   }
 
   return {
@@ -214,7 +208,7 @@ function parseJourney(value: unknown): DischargeJourney | { error: string } {
     time: record.time,
     timeZone: record.timeZone.trim(),
     transportMode: record.transportMode as TransportMode,
-    durationMinutes: Math.round(record.durationMinutes),
+    durationMinutes: parsedDuration,
   };
 }
 
@@ -233,8 +227,10 @@ function parsePatient(value: unknown): PatientFactorsInput | { error: string } {
     return { error: "patient.age must be a finite number." };
   }
 
-  if (record.age < 0 || record.age > MAX_AGE) {
-    return { error: `patient.age must be between 0 and ${MAX_AGE}.` };
+  const parsedAge = parseStrictInteger(record.age, "patient.age", 0, MAX_AGE);
+
+  if (typeof parsedAge === "object") {
+    return parsedAge;
   }
 
   const booleans = parseBooleanRecord<Omit<PatientFactorsInput, "age">>(
@@ -248,7 +244,7 @@ function parsePatient(value: unknown): PatientFactorsInput | { error: string } {
   }
 
   return {
-    age: record.age,
+    age: parsedAge,
     ...booleans,
   };
 }
@@ -274,7 +270,7 @@ export function parseHeatRiskRequest(body: unknown): ParsedHeatRiskRequest {
     return { error: "Request body must be a JSON object." };
   }
 
-  const { origin, destination, journey, patient, medications, homeSocial, forceRefresh, clientEnvironmentalCache } =
+  const { origin, destination, journey, patient, medications, homeSocial, forceRefresh } =
     body as Record<string, unknown>;
 
   const parsedOrigin = parseLocation(origin, "origin");
@@ -313,7 +309,7 @@ export function parseHeatRiskRequest(body: unknown): ParsedHeatRiskRequest {
     return parsedHomeSocial;
   }
 
-  const parsedRequest = {
+  return {
     origin: parsedOrigin,
     destination: parsedDestination,
     journey: parsedJourney,
@@ -321,14 +317,5 @@ export function parseHeatRiskRequest(body: unknown): ParsedHeatRiskRequest {
     medications: parsedMedications,
     homeSocial: parsedHomeSocial,
     ...(forceRefresh === true ? { forceRefresh: true } : {}),
-    ...(parseClientEnvironmentalCache(clientEnvironmentalCache)
-      ? {
-          clientEnvironmentalCache: parseClientEnvironmentalCache(
-            clientEnvironmentalCache
-          ),
-        }
-      : {}),
   };
-
-  return parsedRequest;
 }

@@ -58,6 +58,7 @@ export type AssessmentStatus =
 
 export type EnvironmentalRefreshState = {
   status: "processing" | "failed";
+  activityToken: string;
   activityId: string;
   environmentalQuery: EnvironmentalQuery;
   inputFingerprint: string;
@@ -66,6 +67,7 @@ export type EnvironmentalRefreshState = {
 };
 
 export type PendingEnvironmentalAssessment = {
+  activityToken: string;
   activityId: string;
   environmentalQuery: EnvironmentalQuery;
   inputFingerprint: string;
